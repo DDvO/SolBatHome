@@ -58,6 +58,14 @@ sensor:
           {% set value = states('sensor.pm1_power')|float(0) %}
           {{ value if value >= 1 else -value if value <= -1 else 0 }}
 
+      power_discharge:
+        friendly_name: "Battery discharger: inverter"
+        device_class: power
+        unit_of_measurement: 'W'
+        value_template: >-
+          {% set value = states('sensor.hm_power')|float(0) %}
+          {{ value if value >= 0.5 else 0 }}
+
 
     # further derived values needed for Riemann sums
 
@@ -82,7 +90,8 @@ sensor:
         value_template: >-
           {{ states('sensor.power_balance'   )|float +
              states('sensor.power_production')|float -
-             states('sensor.power_charge'    )|float }}
+             states('sensor.power_charge'    )|float +
+             states('sensor.power_discharge' )|float }}
 
       power_own_use:
         friendly_name: "Power Own Use (self-consumption)"
@@ -153,6 +162,13 @@ sensor:
     round: 3
     method: left
 
+  - name: energy_discharge_sum
+    source: sensor.power_discharge
+    platform: integration
+    unit_prefix: k
+    round: 3
+    method: left
+
   - name: energy_own_use_sum
     source: sensor.power_own_use
     platform: integration
@@ -178,6 +194,13 @@ sensor:
 
   - name: power_charge_sum
     source: sensor.power_charge
+    platform: integration
+    unit_time: s  # leads to wrong warning, see https://github.com/home-assistant/core/issues/107223
+    round: 2
+    method: left
+
+  - name: power_discharge_sum
+    source: sensor.power_discharge
     platform: integration
     unit_time: s  # leads to wrong warning, see https://github.com/home-assistant/core/issues/107223
     round: 2
@@ -300,6 +323,27 @@ utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
     net_consumption: true
     cycle: yearly
 
+  energy_discharge_hourly:
+    name: Energy Discharge Hourly
+    source: sensor.energy_discharge_sum
+    net_consumption: true
+    cycle: hourly
+  energy_discharge_daily:
+    name: Energy Discharge Daily
+    source: sensor.energy_discharge_sum
+    net_consumption: true
+    cycle: daily
+  energy_discharge_monthly:
+    name: Energy Discharge Monthly
+    source: sensor.energy_discharge_sum
+    net_consumption: true
+    cycle: monthly
+  energy_discharge_yearly:
+    name: Energy Discharge Yearly
+    source: sensor.energy_discharge_sum
+    net_consumption: true
+    cycle: yearly
+
   energy_own_use_hourly:
     name: Energy Own_Use Hourly
     source: sensor.energy_own_use_sum
@@ -397,7 +441,7 @@ automation:
       - service: shell_command.rename_profile_by_year
 
 
-  # generate state output per second with power consumption, production, charge, and per each of the three phases
+  # generate state output per second with power consumption, production, charge, discharge, and per each of the three phases
   - id: power_data_to_file
     initial_state: true
     trigger:
@@ -409,6 +453,7 @@ automation:
         # cons: "{{ states('sensor.power_consumption'        )|float }}"
           prod: "{{ states('sensor.power_production'         )|float }}"
           chrg: "{{ states('sensor.power_charge'             )|float }}"
+          disc: "{{ states('sensor.power_discharge'          )|float }}"
           powA: "{{ states('sensor.shelly3em_channel_a_power')|float }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power')|float }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power')|float }}"
@@ -417,14 +462,15 @@ automation:
         data_template: # time zone: %z
           # not using 'cons' above to avoid potential inconsistencies with earlier values of 'powA' etc.
           message: "{{time}},{{
-                      '%7.2f' % (powA + powB + powC + prod - chrg) }},{{
+                      '%7.2f' % (powA + powB + powC + prod - chrg + disc) }},{{
                       '%5.1f' % (prod) if prod != 0 else '    0' }},{{
                       '%5.1f' % (chrg) if chrg != 0 else '    0' }},{{
+                      '%5.1f' % (disc) if disc != 0 else '    0' }},{{
                       '%7.2f' % (powA) }},{{
                       '%7.2f' % (powB) }},{{
                       '%7.2f' % (powC) }}"
 
-  # generate statistics output per hour with energy consumption, production, charge, own use, balance, import, and export
+  # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
     trigger:
       - platform: time_pattern
@@ -436,6 +482,7 @@ automation:
           cons: "{{ ',%4d' % (1000 * states('sensor.energy_consumption_hourly')|float) }}"
           prod: "{{ ',%4d' % (1000 * states('sensor.energy_production_hourly' )|float) }}"
           chrg: "{{ ',%4d' % (1000 * states('sensor.energy_charge_hourly'     )|float) }}"
+          disc: "{{ ',%4d' % (1000 * states('sensor.energy_discharge_hourly'  )|float) }}"
           own:  "{{ ',%4d' % (1000 * states('sensor.energy_own_use_hourly'    )|float) }}"
           bal:  "{{ ',%4d' % (1000 * states('sensor.energy_balance_hourly'    )|float) }}"
           imp:  "{{ ',%4d' % (1000 * states('sensor.energy_import_hourly'     )|float) }}"
@@ -443,7 +490,7 @@ automation:
           # unavailable values intentionally lead to missing output line
       - service: notify.energy_data
         data_template:
-          message: "{{time}}{{cons}}{{prod}}{{chrg}}{{own}}{{bal}}{{imp}}{{exp}}"
+          message: "{{time}}{{cons}}{{prod}}{{chrg}}{{disc}}{{own}}{{bal}}{{imp}}{{exp}}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
