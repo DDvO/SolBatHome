@@ -13,6 +13,36 @@ scene:    !include scenes.yaml
 template: !include template.yaml
 
 
+# using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
+mqtt:
+  sensor:
+      # reports the absolute value, or 'unknown' if sensor is not available
+      # reports 0 if abs(value) < 0.9 because inverter drags ~0.7 W on standby
+    - name: power_production
+      unique_id: "pv1 power production"
+      # friendly_name: "Power at battery charger plug"
+      state_topic: "pv1/status/switch:0"
+      value_template: >-
+        {% set val = value_json['apower'] %}
+        {{ (val if val >= 0.9 else -val if val <= -0.9 else 0) if is_number(val) else val }}
+      # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+
+      # reports 'unknown' if sensor is not available
+      # reports max(0, value - 2.5) because HLG-600H drags ~2.4 W on standby
+    - name: power_charge
+      unique_id: "pm1 power charge"
+      # friendly_name: "Power Production at PV inverter"
+      state_topic: "pm1/status/switch:0"
+      value_template: >-
+        {% set val = value_json['apower'] %}
+        {{ max([0, val - 2.5]) if is_number(val) else val }}
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+
 # sensor: !include sensor.yaml
 sensor:
   - platform: template # https://www.home-assistant.io/integrations/template/
@@ -38,34 +68,14 @@ sensor:
 #            ',%6.2f' % (states('sensor.shelly3em_channel_b_power')|float) }}{{
 #            ',%6.2f' % (states('sensor.shelly3em_channel_c_power')|float) }}
 
-      # reports 0 if power production or the respective sensor is not available
-      # reports 0 if abs(value) < 1 because Shelly Plus 1PM always reports power >= 0.7 W
-      power_production:
-        friendly_name: "Power Production at micro inverter"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {% set value = states('sensor.shelly1pm_power')|float(0) %}
-          {{ value if value >= 1 else -value if value <= -1 else 0 }}
-
-      # reports 0 if battery charger or the respective sensor is not available
-      # reports 0 if abs(value) < 1 because Shelly Plus 1PM always reports power >= 0.7 W
-      power_charge:
-        friendly_name: "Battery charger at power plug"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {% set value = states('sensor.pm1_power')|float(0) %}
-          {{ value if value >= 1 else -value if value <= -1 else 0 }}
-
       power_discharge:
         friendly_name: "Battery discharger: inverter"
         device_class: power
         unit_of_measurement: 'W'
         value_template: >-
-          {% set value = states('sensor.hm_power')|float(0) %}
-          {{ value if value >= 0.5 else 0 }}
-
+          {% set val = states('sensor.hm_power')|float(0) %}
+          {{ (val if val >= 0.5 else 0) if is_number(val) else unknown }}
+        # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
 
     # further derived values needed for Riemann sums
 
@@ -89,9 +99,10 @@ sensor:
         unit_of_measurement: 'W'
         value_template: >-
           {{ states('sensor.power_balance'   )|float +
-             states('sensor.power_production')|float -
-             states('sensor.power_charge'    )|float +
-             states('sensor.power_discharge' )|float }}
+             states('sensor.power_production')|float(0) -
+             states('sensor.power_charge'    )|float(0) +
+             states('sensor.power_discharge' )|float(0) }}
+      # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
 
       power_own_use:
         friendly_name: "Power Own Use (self-consumption)"
@@ -99,7 +110,7 @@ sensor:
         unit_of_measurement: 'W'
         value_template: >-
           {{ min([states('sensor.power_consumption')|float,
-                  states('sensor.power_production' )|float]) }}
+                  states('sensor.power_production' )|float(0)]) }}
 
 #     # workaround for former issue with power production sensor, leading to yields unavailable untility_metervalue with unknown meaturement unit
 #     energy0_production_hourly:
@@ -150,6 +161,7 @@ sensor:
 
   - name: energy_production_sum
     source: sensor.power_production
+    # no need to use float(0) here - see https://github.com/home-assistant/home-assistant.io/issues/30992
     platform: integration
     unit_prefix: k
     round: 3
@@ -157,6 +169,7 @@ sensor:
 
   - name: energy_charge_sum
     source: sensor.power_charge
+    # no need to use float(0) here - see https://github.com/home-assistant/home-assistant.io/issues/30992
     platform: integration
     unit_prefix: k
     round: 3
@@ -450,21 +463,22 @@ automation:
     action:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-        # cons: "{{ states('sensor.power_consumption'        )|float }}"
-          prod: "{{ states('sensor.power_production'         )|float }}"
-          chrg: "{{ states('sensor.power_charge'             )|float }}"
-          disc: "{{ states('sensor.power_discharge'          )|float }}"
-          powA: "{{ states('sensor.shelly3em_channel_a_power')|float }}"
-          powB: "{{ states('sensor.shelly3em_channel_b_power')|float }}"
-          powC: "{{ states('sensor.shelly3em_channel_c_power')|float }}"
+        # cons: "{{ states('sensor.power_consumption'        )|float    }}"
+        # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
+          prod: "{{ states('sensor.power_production'         )|float(0) }}"
+          chrg: "{{ states('sensor.power_charge'             )|float(0) }}"
+          disc: "{{ states('sensor.power_discharge'          )|float    }}"
+          powA: "{{ states('sensor.shelly3em_channel_a_power')|float    }}"
+          powB: "{{ states('sensor.shelly3em_channel_b_power')|float    }}"
+          powC: "{{ states('sensor.shelly3em_channel_c_power')|float    }}"
           # unavailable values intentionally lead to missing output line
       - service: notify.power_data
         data_template: # time zone: %z
           # not using 'cons' above to avoid potential inconsistencies with earlier values of 'powA' etc.
           message: "{{time}},{{
                       '%7.2f' % (powA + powB + powC + prod - chrg + disc) }},{{
-                      '%5.1f' % (prod) if prod != 0 else '    0' }},{{
-                      '%5.1f' % (chrg) if chrg != 0 else '    0' }},{{
+                      '%5.1f' % (prod) if prod != 0 else '    0' if is_number(states('sensor.power_production')) else '    ?' }},{{
+                      '%5.1f' % (chrg) if chrg != 0 else '    0' if is_number(states('sensor.power_charge'    )) else '    ?' }},{{
                       '%5.1f' % (disc) if disc != 0 else '    0' }},{{
                       '%7.2f' % (powA) }},{{
                       '%7.2f' % (powB) }},{{
