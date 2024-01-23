@@ -75,9 +75,10 @@ sensor:
         device_class: power
         unit_of_measurement: 'W'
         value_template: >-
-          {% set val = states('sensor.hm_power')|float(0) %}
-          {{ (val if val >= 0.5 else 0) if is_number(val) else unknown }}
-        # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
+          {% set val = states('sensor.hm_power') %}
+          {{ (val if val|float(1) >= 0.5 else 0) if is_number(val) else val }}
+        # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
+        # gives type error on initial 'unavailable' value
 
     # further derived values needed for Riemann sums
 
@@ -183,6 +184,7 @@ sensor:
 
   - name: energy_discharge_sum
     source: sensor.power_discharge
+    # no need to use float(0) here - see https://github.com/home-assistant/home-assistant.io/issues/30992
     platform: integration
     unit_prefix: k
     round: 3
@@ -473,11 +475,11 @@ automation:
         # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
           prod: "{{ states('sensor.power_production'         )|float(0) }}"
           chrg: "{{ states('sensor.power_charge'             )|float(0) }}"
-          disc: "{{ states('sensor.power_discharge'          )|float    }}"
+          disc: "{{ states('sensor.power_discharge'          )|float(0) }}"
           powA: "{{ states('sensor.shelly3em_channel_a_power')|float    }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power')|float    }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power')|float    }}"
-          # unavailable values intentionally lead to missing output line
+          # unavailable shelly3em_channel_*_power values intentionally lead to missing output line
       - service: notify.power_data
         data_template: # time zone: %z
           # not using 'cons' above to avoid potential inconsistencies with earlier values of 'powA' etc.
@@ -485,7 +487,7 @@ automation:
                       '%7.2f' % (powA + powB + powC + prod - chrg + disc) }},{{
                       '%5.1f' % (prod) if prod != 0 else '    0' if is_number(states('sensor.power_production')) else '    ?' }},{{
                       '%5.1f' % (chrg) if chrg != 0 else '    0' if is_number(states('sensor.power_charge'    )) else '    ?' }},{{
-                      '%5.1f' % (disc) if disc != 0 else '    0' }},{{
+                      '%5.1f' % (disc) if disc != 0 else '    0' if is_number(states('sensor.power_discharge' )) else '    ?' }},{{
                       '%7.2f' % (powA) }},{{
                       '%7.2f' % (powB) }},{{
                       '%7.2f' % (powC) }}"
