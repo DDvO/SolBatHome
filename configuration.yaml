@@ -10,17 +10,64 @@ homeassistant: # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awa
 
 script:   !include scripts.yaml
 scene:    !include scenes.yaml
-template: !include template.yaml
+# template: !include template.yaml
 
+
+template:
+
+# https://community.home-assistant.io/t/use-last-value-instead-of-unknown/614331/4
+# stable sensors using last known value of base sensor if current value is unknown
+
+  - sensor:
+      - name: power_production
+        unique_id: power_production
+        # friendly_name: "Power Production"  # - stable
+        state: '{{ trigger.to_state.state }}'
+        device_class: power
+        unit_of_measurement: W
+    trigger:
+      - platform: state
+        entity_id: sensor.power_production_unstable
+        not_to:
+          - unknown
+          - unavailable
+
+  - sensor:
+      - name: power_charge
+        unique_id: power_charge
+        # friendly_name: "Charge power"  # - stable
+        state: '{{ trigger.to_state.state }}'
+        device_class: power
+        unit_of_measurement: W
+    trigger:
+      - platform: state
+        entity_id: sensor.power_charge_unstable
+        not_to:
+          - unknown
+          - unavailable
+
+  - sensor:
+      - name: power_discharge
+        unique_id: power_discharge
+        # friendly_name: "Discharge power"  # - stable
+        state: '{{ trigger.to_state.state }}'
+        device_class: power
+        unit_of_measurement: W
+    trigger:
+      - platform: state
+        entity_id: sensor.power_discharge_unstable
+        not_to:
+          - unknown
+          - unavailable
 
 # using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
 mqtt:
   sensor:
       # reports the absolute value, or 'unknown' if sensor is not available
       # reports 0 if abs(value) < 0.9 because inverter drags ~0.7 W on standby
-    - name: power_production
-      unique_id: power_production_id
-      # friendly_name: "Power at battery charger plug"
+    - name: power_production_unstable
+      unique_id: power_production_unstable
+      # friendly_name: "Power production - stateless"
       state_topic: "pv1/status/switch:0"
       value_template: >-
         {% set val = value_json['apower'] %}
@@ -32,9 +79,9 @@ mqtt:
 
       # reports 'unknown' if sensor is not available
       # reports max(0, value - 2.5) because HLG-600H drags ~2.4 W on standby
-    - name: power_charge
-      unique_id: power_charge_id
-      # friendly_name: "Power Production at PV inverter"
+    - name: power_charge_unstable  # beware: after quick reload, it can take 30+ seconds to recover from 'unknown' 
+      unique_id: power_charge_unstable
+      # friendly_name: "Charge power - stateless"
       state_topic: "pm1/status/switch:0"
       value_template: >-
         {% set val = value_json['apower'] %}
@@ -69,9 +116,9 @@ sensor:
 #            ',%6.2f' % (states('sensor.shelly3em_channel_b_power')|float) }}{{
 #            ',%6.2f' % (states('sensor.shelly3em_channel_c_power')|float) }}
 
-      power_discharge:
-        unique_id: power_discharge_id
-        friendly_name: "Battery discharger: inverter"
+      power_discharge_unstable:
+        unique_id: power_discharge_unstable
+        # friendly_name: "Discharge power - stateless"
         device_class: power
         unit_of_measurement: 'W'
         value_template: >-
