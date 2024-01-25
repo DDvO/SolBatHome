@@ -475,6 +475,22 @@ shell_command: # https://www.home-assistant.io/integrations/shell_command/  "Whe
 # automation: !include automations.yaml
 automation:
 
+  - id: power_consumption_not_positive
+    trigger:
+      platform: state
+      entity_id: sensor.power_consumption
+      # using condition as platform: numeric_state with below: 1 does not trigger
+    condition:
+      condition: template
+      value_template: "{{ states('sensor.power_consumption')|float(-1) <= 0 }}"
+    action:
+      # https://www.home-assistant.io/integrations/system_log/
+      service: system_log.write
+      data:
+        message: "{{ 'power_consumption is not positive: %s' % (states('sensor.power_consumption')) }}"
+        logger: home
+        level: warning
+
   # at the end of each day, split and name power output file per day
   - id: run_rename_power_by_date
     initial_state: true
