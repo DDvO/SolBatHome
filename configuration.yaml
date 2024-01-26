@@ -777,3 +777,60 @@ automation:
         data_template:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
+
+  # control battery charging such that exactly any excess power is used for this
+  # would be nice, but can only switch on and off: https://edistechlab.com/ein-thermostat-in-home-assistant-erstellen/?v=3a52f3c22ed6
+  - id: control_battery_charging
+    initial_state: true
+    trigger:
+      - platform: state
+        entity_id: sensor.power_balance
+        not_to:  # maybe no more needed
+          - unavailable
+    action:
+      - variables:
+          # no need to check for full battery; this is handled by charger maximium voltage
+          cons:     "{{ states('sensor.power_consumption') }}"
+          balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
+          charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
+          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
+          target:   "{{  10 }}"
+          min_rate: "{{  69 }}"
+          max_rate: "{{ 255 }}"
+          gradient: "{{ 0 if disc_ing else ((balance - target) * -0.4) | int }}"
+          delta:    "{{ max(-62, min(62, gradient)) }}"
+          old_rate: "{{ states.light.charge_control.attributes.brightness | int(0) }}"
+          new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
+          low_rate: "{{ new_rate < min_rate }}"
+          turn_off: "{{ disc_ing or low_rate }}"
+          turn_on:  "{{ not charging and not low_rate }}"
+      - if: "{{ turn_off }}"
+        then:
+          # https://www.home-assistant.io/integrations/switch/
+          - service: switch.turn_off
+            target:
+              entity_id: switch.pm1
+          - service: light.turn_off
+            target:
+              entity_id: light.charge_control
+        else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
+          - if: "{{ new_rate != old_rate }}"
+            then:
+              # https://www.home-assistant.io/integrations/light/
+              - service: light.turn_on  # value 0 would be reported by HA as 'Off'
+                target:
+                  entity_id: light.charge_control
+                data:
+                  brightness: "{{ new_rate }}"
+          - if: "{{ turn_on }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.pm1
+      - service: system_log.write
+        data:
+          message: "{{ 'consumption: %s balance: %s charge old: %s delta: %s new: %s' %
+                    (cons | float(0) | round(0), balance | float(0) | round(0), old_rate, delta,
+                    'off' if turn_off else 'max' if new_rate == max_rate else new_rate) }}"
+          logger: charge
+          level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
