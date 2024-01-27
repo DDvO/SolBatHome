@@ -242,6 +242,11 @@ mqtt:
       device_class: power
       state_class: measurement
 
+    - name: discharge_rate
+      unique_id: discharge_rate
+      # friendly_name: "Discharge rate - stateless"
+      state_topic: "dtu/112183822756/status/limit_relative"  # includes serial number of HM-300
+      unit_of_measurement: '%'
 
 # sensor: !include sensor.yaml
 sensor:
@@ -856,4 +861,60 @@ automation:
                     (cons | float(0) | round(0), balance | float(0) | round(0), old_rate, delta,
                     'off' if turn_off else 'max' if new_rate == max_rate else new_rate) }}"
           logger: charge
+          level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
+
+  # control battery discharging such that exactly any missing power is compensated
+  - id: control_battery_discharging
+    initial_state: true
+    trigger:
+#      - platform: state
+#        entity_id: sensor.power_balance
+#        not_to:  # maybe no more needed
+#          - unavailable
+      - platform: time_pattern
+        seconds: "/4"  # unfortunately, inverter reacts slowly
+    action:
+      - variables:
+          voltage:  "{{ states('sensor.battery_voltage')|float(0) }}"
+          low_batt: "{{ voltage < 24 }}"
+          cons:     "{{ states('sensor.power_consumption') }}"
+          charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
+          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
+          balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
+          target:   "{{ 20 }}"
+          min_rate: "{{  2 }}"
+          max_rate: "{{ 30 }}"
+          gradient: "{{ 0 if charging else ((balance - target) * 0.05) | int }}"
+          delta:    "{{ max(-10, min(10, gradient)) }}"
+          old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
+          new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
+          low_rate: "{{ new_rate < min_rate }}"
+          turn_off: "{{ charging or low_batt or low_rate }}"
+          turn_on:  "{{ not disc_ing and not low_rate }}"
+      - if: "{{ turn_off }}"
+        then:
+          # https://www.home-assistant.io/integrations/switch/
+          - service: button.press
+            target:
+              entity_id: button.hm_1500_turn_inverter_off
+        else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
+          - if: "{{ new_rate != old_rate }}"
+            then:
+            # https://www.home-assistant.io/integrations/number/
+              - service: number.set_value
+                target:
+                  entity_id: number.hm_1500_limit_nonpersistent_relative
+                data:
+                  value: "{{ max(1,new_rate) }}"
+          - if: "{{ turn_on }}"
+            then:
+              - service: button.press
+                target:
+                  entity_id: button.hm_1500_turn_inverter_on
+      - service: system_log.write
+        data:
+          message: "{{ 'battery: %sV consumption: %s balance: %s discharge old: %s delta: %s new: %s' %
+                       (voltage, cons | float(0) | round(0), balance | float(0) | round(0), old_rate, delta,
+                       'off' if turn_off else 'max' if new_rate == max_rate else new_rate) }}"
+          logger: discharge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
