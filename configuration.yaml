@@ -581,6 +581,26 @@ input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
 
+# defining the inputs before the automations such that they can be modified without restarting HA
+input_boolean:
+  charge_enabled:
+    name: Charge enabled
+    initial: "on"
+    icon: mdi:battery-arrow-up-outline
+  charge_logged:
+    name: Charge logged
+    icon: mdi:battery-arrow-up-outline
+
+input_number:
+  target_charge:
+    name: Charge target balance
+    initial: 0
+    min: -100
+    max: 100
+    step: 10
+    icon: mdi:battery-arrow-up-outline
+
+
 notify: # https://www.home-assistant.io/integrations/file/
 
   - name: power_data
@@ -794,7 +814,7 @@ automation:
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
           charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
-          target:   "{{  10 }}"
+          target:   "{{ states('input_number.target_charge') }}"
           min_rate: "{{  69 }}"
           max_rate: "{{ 255 }}"
           gradient: "{{ 0 if disc_ing else ((balance - target) * -0.4) | int }}"
@@ -802,7 +822,7 @@ automation:
           old_rate: "{{ states.light.charge_control.attributes.brightness | int(0) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          turn_off: "{{ disc_ing or low_rate }}"
+          turn_off: "{{ not states('input_number.charge_enabled') or disc_ing or low_rate }}"
           turn_on:  "{{ not charging and not low_rate }}"
       - if: "{{ turn_off }}"
         then:
@@ -827,6 +847,9 @@ automation:
               - service: switch.turn_on
                 target:
                   entity_id: switch.pm1
+      - condition: state
+        entity_id: input_boolean.charge_logged
+        state: "on"
       - service: system_log.write
         data:
           message: "{{ 'consumption: %s balance: %s charge old: %s delta: %s new: %s' %
