@@ -575,6 +575,39 @@ input_number:
     max: 999999
     mode: box
 
+# defining the inputs before the automations such that they can be modified without restarting HA
+input_boolean:
+  charge_enabled:
+    name: Charge enabled
+    initial: "on"
+    icon: mdi:battery-arrow-up-outline
+  charge_logged:
+    name: Charge logged
+    icon: mdi:battery-arrow-up-outline
+  discharge_enabled:
+    name: Discharge enabled
+    initial: "on"
+    icon: mdi:battery-arrow-down-outline
+  discharge_logged:
+    name: Discharge logged
+    icon: mdi:battery-arrow-down-outline
+
+input_number:
+  target_charge:
+    name: Charge target balance
+    initial: 0
+    min: -100
+    max: 100
+    step: 10
+    icon: mdi:battery-arrow-up-outline
+  target_discharge:
+    name: Discharge target balance
+    initial: 20
+    min: -100
+    max: 100
+    step: 10
+    icon: mdi:battery-arrow-down-outline
+
   power_balance_avg:
     name: Power Balance Rolling Average
     initial: 0
@@ -585,25 +618,6 @@ input_number:
 input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
-
-# defining the inputs before the automations such that they can be modified without restarting HA
-input_boolean:
-  charge_enabled:
-    name: Charge enabled
-    initial: "on"
-    icon: mdi:battery-arrow-up-outline
-  charge_logged:
-    name: Charge logged
-    icon: mdi:battery-arrow-up-outline
-
-input_number:
-  target_charge:
-    name: Charge target balance
-    initial: 0
-    min: -100
-    max: 100
-    step: 10
-    icon: mdi:battery-arrow-up-outline
 
 
 notify: # https://www.home-assistant.io/integrations/file/
@@ -736,18 +750,21 @@ automation:
           entity_id: input_text.battery_status
           value: "{{ batt_status }}"
 
+      - variables:
+          target_charge: "{{ states('input_number.target_charge'   )|int(10) }}"
+          target_dischg: "{{ states('input_number.target_discharge')|int(20) }}"
       - service: light.turn_on
         target:
           entity_id: light.power_import
         data:
-          brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
+          brightness_pct: "{{ min(100, max(0, (balance - target_dischg) * 100 / 200)) }}"
           # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
           # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
       - service: light.turn_on
         target:
           entity_id: light.power_export
         data:
-          brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
+          brightness_pct: "{{ min(100, max(0, (target_charge - balance) * 100 / 200)) }}"
 
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
@@ -881,7 +898,7 @@ automation:
           charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
-          target:   "{{ 20 }}"
+          target:   "{{ states('input_number.target_discharge') }}"
           min_rate: "{{  2 }}"
           max_rate: "{{ 30 }}"
           gradient: "{{ 0 if charging else ((balance - target) * 0.05) | int }}"
@@ -889,7 +906,7 @@ automation:
           old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          turn_off: "{{ charging or low_batt or low_rate }}"
+          turn_off: "{{ not states('input_number.discharge_enabled') or charging or low_batt or low_rate }}"
           turn_on:  "{{ not disc_ing and not low_rate }}"
       - if: "{{ turn_off }}"
         then:
@@ -911,6 +928,9 @@ automation:
               - service: button.press
                 target:
                   entity_id: button.hm_1500_turn_inverter_on
+      - condition: state
+        entity_id: input_boolean.discharge_logged
+        state: "on"
       - service: system_log.write
         data:
           message: "{{ 'battery: %sV consumption: %s balance: %s discharge old: %s delta: %s new: %s' %
