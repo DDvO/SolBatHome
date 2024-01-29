@@ -615,9 +615,17 @@ input_number:
     max: +999999
     mode: box
 
+# (ab-)using input for remembering value in automation https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
 input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
+
+  charging_last_turned_on:
+    name: Charging last turned on
+    initial: 0001-01-01 00:00:00+00:00
+  charging_last_turned_off:
+    name: Charging last turned off
+    initial: 0001-01-01 00:00:00+00:00
 
 
 notify: # https://www.home-assistant.io/integrations/file/
@@ -820,7 +828,7 @@ automation:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
 
-  # control battery charging such that exactly any excess power is used for this
+  # control battery charging with the goal that exactly any excess power is used for this
   # would be nice, but can only switch on and off: https://edistechlab.com/ein-thermostat-in-home-assistant-erstellen/?v=3a52f3c22ed6
   - id: control_battery_charging
     initial_state: true
@@ -832,20 +840,23 @@ automation:
     action:
       - variables:
           # no need to check for full battery; this is handled by charger maximium voltage
+          threshold: "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
-          balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
-          charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
-          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
+          balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
+          charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
+          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           target:   "{{ states('input_number.target_charge') }}"
           min_rate: "{{  69 }}"
           max_rate: "{{ 255 }}"
-          gradient: "{{ 0 if disc_ing else ((balance - target) * -0.4) | int }}"
-          delta:    "{{ max(-62, min(62, gradient)) }}"
-          old_rate: "{{ states.light.charge_control.attributes.brightness | int(0) }}"
+          max_delta: "{{ (max_rate - min_rate) / 3 }}"
+          gradient: "{{ ((balance - target) * -0.2) | int }}"
+          delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
+          old_rate: "{{ max(min_rate, states.light.charge_control.attributes.brightness|int(0)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          turn_off: "{{ not states('input_number.charge_enabled') or disc_ing or low_rate }}"
-          turn_on:  "{{ not charging and not low_rate }}"
+          long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(seconds=120) }}"
+          long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=  5) }}"
+          turn_off: "{{ states('input_boolean.charge_enabled') == 'off' or disc_ing or (low_rate and long_on) }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
@@ -855,6 +866,13 @@ automation:
           - service: light.turn_off
             target:
               entity_id: light.charge_control
+          - condition: numeric_state
+            entity_id: sensor.power_charge
+            above: 2  # threshold
+          - service: input_text.set_value
+            data:
+              entity_id: input_text.charging_last_turned_off
+              value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
         else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
           - if: "{{ new_rate != old_rate }}"
             then:
@@ -864,19 +882,23 @@ automation:
                   entity_id: light.charge_control
                 data:
                   brightness: "{{ new_rate }}"
-          - if: "{{ turn_on }}"
+          - if: "{{ not charging and long_off }}"
             then:
               - service: switch.turn_on
                 target:
                   entity_id: switch.pm1
+              - service: input_text.set_value
+                data:
+                  entity_id: input_text.charging_last_turned_on
+                  value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
       - condition: state
         entity_id: input_boolean.charge_logged
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %s balance: %s charge old: %s delta: %s new: %s' %
-                    (cons | float(0) | round(0), balance | float(0) | round(0), old_rate, delta,
-                    'off' if turn_off else 'max' if new_rate == max_rate else new_rate) }}"
+          message: "{{ 'consumption: %4d balance: %+4d charge old: %3d delta: %3d new: %3s / %3d' %
+                    (cons | int(0), balance | int(0), old_rate, delta,
+                    'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate, max_rate) }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
