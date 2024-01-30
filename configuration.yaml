@@ -911,7 +911,7 @@ automation:
 #        not_to:  # maybe no more needed
 #          - unavailable
       - platform: time_pattern
-        seconds: "/4"  # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often
+        seconds: "/9"  # unfortunately, HM-300 inverter reacts slowly and partly even erratically if changes requested more often
     action:
       - variables:
           threshold: "{{ 2 }}"
@@ -922,10 +922,11 @@ automation:
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
           target:   "{{ states('input_number.target_discharge') }}"
-          min_rate: "{{  2 }}"
-          max_rate: "{{ 26 }}"  # max useful value for HM-1500 with just one input used
+          min_rate: "{{  3 }}"  # min stable percent value for HM-300
+          max_rate: "{{ 61 }}"  # max percent value for HM-300 to report correct output power
+        # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
           max_delta: "{{ (max_rate - min_rate) / 3 }}"
-          gradient: "{{ ((balance - target) * 0.05) | int }}"
+          gradient: "{{ ((balance - target) * 0.15) | int }}"  # HM-300 relative
           delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
           old_rate: "{{ max(min_rate, states('sensor.discharge_rate')|int(0)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
@@ -939,21 +940,21 @@ automation:
             above: 2  # threshold
           - service: button.press
             target:
-              entity_id: button.hm_1500_turn_inverter_off
+              entity_id: button.hm_300_turn_inverter_off
         else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
           - if: "{{ new_rate != old_rate }}"
             then:
             # https://www.home-assistant.io/integrations/number/
               - service: number.set_value
                 target:
-                  entity_id: number.hm_1500_limit_nonpersistent_relative
+                  entity_id: number.hm_300_limit_nonpersistent_relative
                 data:
                   value: "{{ max(1,new_rate) }}"
           - if: "{{ not disc_ing }}"
             then:
               - service: button.press
                 target:
-                  entity_id: button.hm_1500_turn_inverter_on
+                  entity_id: button.hm_300_turn_inverter_on
       - condition: state
         entity_id: input_boolean.discharge_logged
         state: "on"
