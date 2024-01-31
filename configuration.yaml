@@ -536,9 +536,9 @@ automation:
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
         # cons: "{{ states('sensor.power_consumption'        )|float    }}"
         # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
-          prod: "{{ states('sensor.power_production'         )|float(0) }}"
-          chrg: "{{ states('sensor.power_charge'             )|float(0) }}"
-          disc: "{{ states('sensor.power_discharge'          )|float(0) }}"
+          prod: "{{ states('sensor.power_production'         )          }}"
+          chrg: "{{ states('sensor.power_charge'             )          }}"
+          disc: "{{ states('sensor.power_discharge'          )          }}"
           powA: "{{ states('sensor.shelly3em_channel_a_power')|float    }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power')|float    }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power')|float    }}"
@@ -546,14 +546,14 @@ automation:
       - service: notify.power_data
         data_template: # time zone: %z
           # not using 'cons' above to avoid potential inconsistencies with earlier values of 'powA' etc.
-          message: "{{time}},{{
-                      '%7.2f' % (powA + powB + powC + prod - chrg + disc) }},{{
-                      '%5.1f' % (prod) if prod != 0 else '    0' if is_number(states('sensor.power_production')) else '    ?' }},{{
-                      '%5.1f' % (chrg) if chrg != 0 else '    0' if is_number(states('sensor.power_charge'    )) else '    ?' }},{{
-                      '%5.1f' % (disc) if disc != 0 else '    0' if is_number(states('sensor.power_discharge' )) else '    ?' }},{{
-                      '%7.2f' % (powA) }},{{
-                      '%7.2f' % (powB) }},{{
-                      '%7.2f' % (powC) }}"
+          message: "{{ time }},{{
+                       '%7.2f' % (powA + powB + powC + prod|float(0) - chrg|float(0) + disc|float(0)) }},{{
+                      ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?' }},{{
+                      ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?' }},{{
+                      ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?' }},{{
+                       '%7.2f' % powA }},{{
+                       '%7.2f' % powB }},{{
+                       '%7.2f' % powC }}"
 
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
