@@ -572,10 +572,12 @@ automation:
           bal:  "{{ ',%4d' % (1000 * states('sensor.energy_balance_hourly'    )|float) }}"
           imp:  "{{ ',%4d' % (1000 * states('sensor.energy_import_hourly'     )|float) }}"
           exp:  "{{ ',%4d' % (1000 * states('sensor.energy_export_hourly'     )|float) }}"
+          volt: "{{ states('sensor.battery_voltage') }}"
           # unavailable values intentionally lead to missing output line
       - service: notify.energy_data
         data_template:
-          message: "{{time}}{{cons}}{{prod}}{{chrg}}{{disc}}{{own}}{{bal}}{{imp}}{{exp}}"
+          message: "{{time}}{{cons}}{{prod}}{{own}}{{bal}}{{imp}}{{exp}}{{chrg}}{{disc}},{{
+                      '%2.1f' % volt if is_number(volt) else ' 0' }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
