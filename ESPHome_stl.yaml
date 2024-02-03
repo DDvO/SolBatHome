@@ -1,0 +1,62 @@
+esphome:
+  name: esp
+
+esp8266:
+  board: d1_mini
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  password: ***
+
+ota:
+  password: ***
+
+wifi:
+  ssid: ***
+  password: ***
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp Fallback Hotspot"
+    password: ***
+
+captive_portal:
+
+# https://esphome.io/components/output/esp8266_pwm.html
+output:
+  - platform: esp8266_pwm
+    pin: D1
+    frequency: 1000 Hz
+    id: pwm_output_charge
+
+  - platform: esp8266_pwm
+    pin: D2
+    frequency: 10 Hz
+    id: pwm_output_import
+
+  - platform: esp8266_pwm
+    pin: D3
+    frequency: 10 Hz
+    id: pwm_output_export
+
+light:
+  - platform: monochromatic
+    output: pwm_output_charge
+    name: "Charge control"
+
+  - platform: monochromatic
+    output: pwm_output_import
+    name: "Power import"
+
+  - platform: monochromatic
+    output: pwm_output_export
+    name: "Power export"
+
+# https://esphome.io/components/switch/gpio
+switch:
+  - platform: gpio
+    pin: D4
+    name: test_switch
