@@ -38,6 +38,10 @@ homeassistant:
       templates:
         icon_color: 'red'
 
+http:
+  ssl_certificate: cert.pem
+  ssl_key: key.pem
+
 ## https://github.com/andrey-git/home-assistant-custom-ui?tab=readme-ov-file
 #customizer:
 #  custom_ui: local
