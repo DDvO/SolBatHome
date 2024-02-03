@@ -10,8 +10,8 @@ homeassistant: # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awa
 
   # https://www.home-assistant.io/docs/configuration/customizing-devices/
   customize:
-    sensor.power_balance_new:
-      # icon: mdi:lightbulb # would overrid the template sensor icon definition
+    sensor.power_balance:
+      # icon: mdi:lightbulb # would override the template sensor icon definition
 
       # https://community.home-assistant.io/t/how-to-change-icons-colour-of-template-sensor-in-lovelace/107619
       # is ignored, likely due to incomplete installation:
@@ -48,10 +48,10 @@ template:
 # https://smarthomeyourself.de/wiki/homeassistant/template-sensoren-von-der-alten-sensor-integration-auf-die-neue-template-integration-umstellen/
 
   - sensor:
-      - name: power_balance_new
-        unique_id: power_balance_new_id
-        # friendly_name: "Power Balance new at distribution box"
-        # device_class: power
+      - name: power_balance
+        unique_id: power_balance_id
+        # friendly_name: "Power Balance" # " at distribution box"
+        device_class: power
         unit_of_measurement: 'W'
         state: >
           {{ states('sensor.shelly3em_channel_a_power')|float
@@ -148,28 +148,10 @@ mqtt:
 # sensor: !include sensor.yaml
 sensor:
   - platform: template # https://www.home-assistant.io/integrations/template/
-    sensors:           # needed for Riemann sums (integrations) below
+    sensors:
 
-    # abstractions from Shelly peculiarities, needed also for Riemann sums
-
-      power_balance:
-        unique_id: power_balance_id
-        friendly_name: "Power Balance at distribution box"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {{ states('sensor.shelly3em_channel_a_power')|float
-           + states('sensor.shelly3em_channel_b_power')|float
-           + states('sensor.shelly3em_channel_c_power')|float }}
-
-# adding such a derived sensor would be inefficient, see
-# https://www.shelly-support.eu/forum/thread/8977-shelly-3em-phasen-saldieren-in-home-assistant/?postID=218747#post218747
-#     power_phases:
-#       friendly_name: "Power Phases at distribution box"
-#       value_template: >-
-#         {{ ',%6.2f' % (states('sensor.shelly3em_channel_a_power')|float) }}{{
-#            ',%6.2f' % (states('sensor.shelly3em_channel_b_power')|float) }}{{
-#            ',%6.2f' % (states('sensor.shelly3em_channel_c_power')|float) }}
+    # beware that adding needless derived sensors would be inefficient, see
+    # https://www.shelly-support.eu/forum/thread/8977-shelly-3em-phasen-saldieren-in-home-assistant/?postID=218747#post218747
 
       power_discharge_unstable:
         unique_id: power_discharge_unstable
@@ -182,7 +164,7 @@ sensor:
         # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
         # gives type error on initial 'unavailable' value
 
-    # further derived values needed for Riemann sums
+    # derived values needed for Riemann sums (integrations)
 
       power_import:  # on power_balance > 0
         unique_id: power_import_id
