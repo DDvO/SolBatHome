@@ -937,7 +937,12 @@ automation:
           # https://www.home-assistant.io/integrations/switch/
           - condition: numeric_state
             entity_id: sensor.power_discharge
-            above: 2  # threshold
+            above: 2  # threshold, so do perform any changes only when curently on
+          - service: number.set_value
+            target:
+              entity_id: number.hm_300_limit_nonpersistent_relative
+            data:
+              value: "{{ 4 }}"  # workaround for: "Invalid value for number.hm_300_limit_nonpersistent_absolute: 9.0 (range 10.0 - 2250.0)"
           - service: button.press
             target:
               entity_id: button.hm_300_turn_inverter_off
