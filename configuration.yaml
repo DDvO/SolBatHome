@@ -917,7 +917,7 @@ automation:
         seconds: "/9"  # unfortunately, HM-300 inverter reacts slowly and partly even erratically if changes requested more often
     action:
       - variables:
-          threshold: "{{ 2 }}"
+          threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
           voltage:  "{{ states('sensor.battery_voltage')|float(0) }}"
           low_batt: "{{ voltage < 24 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
@@ -925,33 +925,47 @@ automation:
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
           target:   "{{ states('input_number.target_discharge') }}"
-          min_rate: "{{  3 }}"  # min stable percent value for HM-300
-          max_rate: "{{ 61 }}"  # max percent value for HM-300 to report correct output power
+          min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
+          min_eff:  "{{ 10 }}"  # min percent value for HM-300 where efficiency is considered acceptable (at least some 90%)
+          min_pow:  "{{ 25 }}"  # output power corresponding to min_eff limit value, used to prevent on/off oscillation
+          max_rate: "{{ 76 }}"  # max percent value for HM-300 where actual output power is below 300 W
         # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
-          max_delta: "{{ (max_rate - min_rate) / 3 }}"
-          gradient: "{{ ((balance - target) * 0.15) | int }}"  # HM-300 relative
-          delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
-          old_rate: "{{ max(min_rate, states('sensor.discharge_rate')|int(0)) }}"
-          new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
-          low_rate: "{{ new_rate < min_rate }}"
-          bright:   "{{ states('input_boolean.sunshine_period') == 'on' }}"
+          max_delta: "{{ (max_rate - min_rate) / 1 }}"
+          gradient: "{{ ((balance - target) * 0.18) | int }}"  # higher factor leads to overshooting
+          old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
+          delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
+          new_rate: "{{ max(min_rate, min(max_rate, old_rate + delta)) }}"
+          low_rate: "{{ new_rate <= min_eff }}"
+          bright:   "{{ states('input_boolean.sunshine_period'  ) == 'on' }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
           turn_off: "{{ disabled or bright or charging or low_batt or low_rate }}"
       - if: "{{ turn_off }}"
         then:
-          # https://www.home-assistant.io/integrations/switch/
-          - condition: numeric_state
-            entity_id: sensor.power_discharge
-            above: 2  # threshold, so do perform any changes only when curently on
-          - service: number.set_value
-            target:
-              entity_id: number.hm_300_limit_nonpersistent_relative
-            data:
-              value: "{{ 4 }}"  # workaround for: "Invalid value for number.hm_300_limit_nonpersistent_absolute: 9.0 (range 10.0 - 2250.0)"
-          - service: button.press
-            target:
-              entity_id: button.hm_300_turn_inverter_off
-        else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
+          # perform any changes only when needed
+          - if: "{{ disc_ing }}"
+            then:
+             # https://www.home-assistant.io/integrations/switch/
+              - service: button.press
+                target:
+                  entity_id: button.hm_300_turn_inverter_off
+            # workaround for: "Invalid value for number.hm_300_limit_nonpersistent_absolute: 9.0 (range 10.0 - 2250.0)"
+          - if: "{{ low_rate and old_rate != min_eff }}"
+            then:
+              - service: number.set_value
+                target:
+                  entity_id: number.hm_300_limit_nonpersistent_relative
+                data:
+                  value: "{{ min_eff }}"
+            else:
+              - if: "{{ old_rate < min_rate }}"
+                then:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.hm_300_limit_nonpersistent_relative
+                    data:
+                      value: "{{ min_rate }}"
+        else:  # further actions only if not turning off
+          # set new rate if needed before maybe turning on
           - if: "{{ new_rate != old_rate }}"
             then:
             # https://www.home-assistant.io/integrations/number/
@@ -959,7 +973,8 @@ automation:
                 target:
                   entity_id: number.hm_300_limit_nonpersistent_relative
                 data:
-                  value: "{{ max(1,new_rate) }}"
+                  value: "{{ new_rate }}"
+          # turn on only when needed
           - if: "{{ not disc_ing }}"
             then:
               - service: button.press
@@ -970,10 +985,11 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %4d balance: %+5d dischg old: %3d delta: %3d new: %3s / %3d%s, battery: %sV' %
+          message: "{{ 'consumption: %4d balance: %+5d dischg old: %2d delta: %2d new: %3s / %2d%s, battery: %sV' %
                        (cons | int(0), balance | int(0), old_rate, delta,
-                       'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
-                       max_rate, ' disabled' if disabled else ' too bright'  if bright   else
-                                 ' charging' if charging else ' low battery' if low_batt else '', voltage) }}"
+                       'off' if turn_off else 'min' if new_rate <= min_rate else 'eff' if new_rate == min_eff else
+                       'max' if new_rate == max_rate else new_rate, max_rate,
+                       ' disabled' if disabled else ' too bright'  if bright   else
+                       ' charging' if charging else ' low battery' if low_batt else ' at min' if low_rate else '', voltage) }}"
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
