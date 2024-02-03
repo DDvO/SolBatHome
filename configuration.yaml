@@ -145,6 +145,24 @@ mqtt:
       device_class: power
       state_class: measurement
 
+      # reports 'unknown' if sensor is not available, and 0 if value < 0.5 to suppress flicker
+    - name: power_discharge_unstable
+      unique_id: power_discharge_unstable
+      # friendly_name: "Discharge power - stateless"
+      state_topic: "pm2/status/switch:0"
+      value_template: >-
+        {% set val = value_json['apower'] %}
+        {{ (val if val >= 0.5 else 0) if is_number(val) else val }}
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+
+    - name: battery_voltage
+      unique_id: battery_voltage
+      # friendly_name: "Battery voltage"  # - stateless
+      state_topic: "dtu/116181851168/1/voltage"
+      unit_of_measurement: V
+
 # sensor: !include sensor.yaml
 sensor:
   - platform: template # https://www.home-assistant.io/integrations/template/
@@ -152,17 +170,6 @@ sensor:
 
     # beware that adding needless derived sensors would be inefficient, see
     # https://www.shelly-support.eu/forum/thread/8977-shelly-3em-phasen-saldieren-in-home-assistant/?postID=218747#post218747
-
-      power_discharge_unstable:
-        unique_id: power_discharge_unstable
-        # friendly_name: "Discharge power - stateless"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {% set val = states('sensor.hm_power') %}
-          {{ (val if val|float(1) >= 0.5 else 0) if is_number(val) else val }}
-        # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
-        # gives type error on initial 'unavailable' value
 
     # derived values needed for Riemann sums (integrations)
 
