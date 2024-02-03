@@ -590,6 +590,7 @@ automation:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
         # cons: "{{ states('sensor.power_consumption'        )|float    }}"
+        # bal:  "{{ states('sensor.power_balance'            )|float(0) }}"
         # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
           prod: "{{ states('sensor.power_production'         )          }}"
           chrg: "{{ states('sensor.power_charge'             )          }}"
@@ -597,18 +598,34 @@ automation:
           powA: "{{ states('sensor.shelly3em_channel_a_power')|float    }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power')|float    }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power')|float    }}"
-          # unavailable shelly3em_channel_*_power values intentionally lead to missing output line
+      # on unavailable shelly3em_channel_*_power values, do not output line of data
+      - condition: "{{ is_number(powA) and is_number(powB) and is_number(powC)     }}"
+      - variables:
+          balance    : "{{ powA + powB + powC                                      }}"
+          consumption: "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
       - service: notify.power_data
         data_template: # time zone: %z
-          # not using 'cons' above to avoid potential inconsistencies with earlier values of 'powA' etc.
+          # not using 'cons' nor 'bal' above to avoid potential inconsistencies with earlier values of 'powA' etc.
           message: "{{ time }},{{
-                       '%7.2f' % (powA + powB + powC + prod|float(0) - chrg|float(0) + disc|float(0)) }},{{
+                       '%7.2f' % consumption }},{{
                       ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?' }},{{
                       ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?' }},{{
                       ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?' }},{{
                        '%7.2f' % powA }},{{
                        '%7.2f' % powB }},{{
                        '%7.2f' % powC }}"
+      - service: light.turn_on
+        target:
+          entity_id: light.power_import
+        data:
+          brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
+          # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
+          # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
+      - service: light.turn_on
+        target:
+          entity_id: light.power_export
+        data:
+          brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
 
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
