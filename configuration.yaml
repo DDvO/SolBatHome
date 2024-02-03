@@ -548,6 +548,10 @@ input_boolean:
     # unique_id: discharge_logged_id
     icon: mdi:battery-arrow-down-outline
 
+  sunshine_period:
+    name: Sunshine period
+    icon: mdi:sun-angle-outline
+
 input_number:
   target_charge:
     name: Target balance for charging
@@ -1144,4 +1148,32 @@ automation:
                         ' turning inverter on'   if not disc_ing else '') }}"
                   # {{ 'prevDisc %s' % prevDisc }} {{ 'vs. old_disc %s' % old_disc }} {{ 'old_pow %s' % old_pow }} {{ 'old_rate %s' % old_rate }}"
           logger: dischg
+          level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
+
+  - id: sunshine_period
+    initial_state: true
+    trigger:
+      - platform: state
+        entity_id: sun.sun
+        attribute: elevation
+    action:
+      - variables:
+          ele: "{{ state_attr('sun.sun', 'elevation') }}"
+      # deliberately not using sensor.power_production here - relevant for charging is excess power
+      - if: "{{ ele > 1 and states('sensor.power_balance')|float(0) < 0 }}"
+        then:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.sunshine_period
+      - if: "{{ ele < 1 }}"  # cannot expect excess power for the rest of the day
+        then:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.sunshine_period
+      - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
+                       states('input_boolean.discharge_logged') == 'on' }}"
+      - service: system_log.write
+        data:
+          message: "{{ state_attr('sun.sun', 'elevation') }}"
+          logger: sun elevation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
