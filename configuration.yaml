@@ -896,9 +896,10 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %4d balance: %+4d charge old: %3d delta: %3d new: %3s / %3d' %
+          message: "{{ 'consumption: %4d balance: %+5d charge old: %3d delta: %3d new: %3s / %3d%s' %
                     (cons | int(0), balance | int(0), old_rate, delta,
-                    'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate, max_rate) }}"
+                    'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
+                    max_rate, ' disabled' if disabled else ' too dark' if dark else ' discharging' if disc_ing else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
@@ -965,8 +966,10 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %4d balance: %+4d dischg old: %3d delta: %3d new: %3s / %3d, battery: %sV ' %
+          message: "{{ 'consumption: %4d balance: %+5d dischg old: %3d delta: %3d new: %3s / %3d%s, battery: %sV' %
                        (cons | int(0), balance | int(0), old_rate, delta,
-                       'off' if turn_off else 'max' if new_rate == max_rate else new_rate, max_rate, voltage) }}"
+                       'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
+                       max_rate, ' disabled' if disabled else ' too bright'  if bright   else
+                                 ' charging' if charging else ' low battery' if low_batt else '', voltage) }}"
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
