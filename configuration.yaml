@@ -190,7 +190,7 @@ sensor:
         device_class: power
         unit_of_measurement: 'W'
         value_template: >-
-          {{ max([0, states('sensor.power_balance')|float]) }}
+          {{ max([0, states('sensor.power_balance')|float(0)]) }}
 
       power_export:  # on power_balance < 0
         unique_id: power_export_id
@@ -198,28 +198,31 @@ sensor:
         device_class: power
         unit_of_measurement: 'W'
         value_template: >-
-          {{ max([0, 0 - states('sensor.power_balance')|float]) }}
+          {{ max([0, 0 - states('sensor.power_balance')|float(0)]) }}
 
       power_consumption:
         unique_id: power_consumption_id
         friendly_name: "Power Consumption"
         device_class: power
         unit_of_measurement: 'W'
+        availability_template: "{{ is_number(states('sensor.power_balance')) }}"
         value_template: >-
-          {{ states('sensor.power_balance'   )|float +
+          {{ states('sensor.power_balance'   )|float    +
              states('sensor.power_production')|float(0) -
              states('sensor.power_charge'    )|float(0) +
              states('sensor.power_discharge' )|float(0) }}
-      # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
+      # for some reason, despite availability_template, still need to use '|float' see https://github.com/home-assistant/home-assistant.io/issues/30992
 
       power_own_use:
         unique_id: power_own_use_id
         friendly_name: "Power Own Use (self-consumption)"
         device_class: power
         unit_of_measurement: 'W'
+        availability_template: "{{ is_number(states('sensor.power_consumption')) and
+                                   is_number(states('sensor.power_production' )) }}"
         value_template: >-
-          {{ min([states('sensor.power_consumption')|float,
-                  states('sensor.power_production' )|float(0)]) }}
+          {{ min(states('sensor.power_consumption')|float, states('sensor.power_production')|float) }}
+      # for some reason, despite availability still need to use '|float' - see https://github.com/home-assistant/home-assistant.io/issues/30992
 
 #     # workaround for former issue with power production sensor, leading to yields unavailable untility_metervalue with unknown meaturement unit
 #     energy0_production_hourly:
@@ -530,22 +533,6 @@ shell_command: # https://www.home-assistant.io/integrations/shell_command/  "Whe
 # automation: !include automations.yaml
 automation:
 
-  - id: power_consumption_not_positive
-    trigger:
-      platform: state
-      entity_id: sensor.power_consumption
-      # using condition as platform: numeric_state with below: 1 does not trigger
-    condition:
-      condition: template
-      value_template: "{{ states('sensor.power_consumption')|float(-1) <= 0 }}"
-    action:
-      # https://www.home-assistant.io/integrations/system_log/
-      service: system_log.write
-      data:
-        message: "{{ 'power_consumption is not positive: %s' % (states('sensor.power_consumption')) }}"
-        logger: home
-        level: warning
-
   # at the end of each day, split and name power output file per day
   - id: run_rename_power_by_date
     initial_state: true
@@ -589,23 +576,30 @@ automation:
     action:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-        # cons: "{{ states('sensor.power_consumption'        )|float    }}"
-        # bal:  "{{ states('sensor.power_balance'            )|float(0) }}"
-        # need to use float(0) - see https://github.com/home-assistant/home-assistant.io/issues/30992
-          prod: "{{ states('sensor.power_production'         )          }}"
-          chrg: "{{ states('sensor.power_charge'             )          }}"
-          disc: "{{ states('sensor.power_discharge'          )          }}"
-          powA: "{{ states('sensor.shelly3em_channel_a_power')|float    }}"
-          powB: "{{ states('sensor.shelly3em_channel_b_power')|float    }}"
-          powC: "{{ states('sensor.shelly3em_channel_c_power')|float    }}"
-      # on unavailable shelly3em_channel_*_power values, do not output line of data
+          cons: "{{ states('sensor.power_consumption'        ) }}"
+        # bal:  "{{ states('sensor.power_balance'            ) }}"
+          prod: "{{ states('sensor.power_production'         ) }}"
+          chrg: "{{ states('sensor.power_charge'             ) }}"
+          disc: "{{ states('sensor.power_discharge'          ) }}"
+          powA: "{{ states('sensor.shelly3em_channel_a_power') }}"
+          powB: "{{ states('sensor.shelly3em_channel_b_power') }}"
+          powC: "{{ states('sensor.shelly3em_channel_c_power') }}"
+      - if: "{{ cons|float(-1) <= 0 }}"
+        then:
+          # https://www.home-assistant.io/integrations/system_log/
+          - service: system_log.write
+            data:
+              message: "{{ 'power_consumption is not positive: %s' % cons }}"
+              logger: home
+              level: warning
+      # on unavailable per-channel power values, do not output line of data
       - condition: "{{ is_number(powA) and is_number(powB) and is_number(powC)     }}"
       - variables:
           balance    : "{{ powA + powB + powC                                      }}"
           consumption: "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
       - service: notify.power_data
         data_template: # time zone: %z
-          # not using 'cons' nor 'bal' above to avoid potential inconsistencies with earlier values of 'powA' etc.
+          # not using above 'cons' nor 'bal' to avoid potential inconsistencies with earlier values of powA/powB/powC
           message: "{{ time }},{{
                        '%7.2f' % consumption }},{{
                       ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?' }},{{
@@ -636,20 +630,21 @@ automation:
     action:
       - variables:
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          # placing commas already here as otherwise leading spaces would be discarded on concatenation
           cons: "{{ ',%4d' % (1000 * states('sensor.energy_consumption_hourly')|float) }}"
           prod: "{{ ',%4d' % (1000 * states('sensor.energy_production_hourly' )|float) }}"
-          chrg: "{{ ',%4d' % (1000 * states('sensor.energy_charge_hourly'     )|float) }}"
-          disc: "{{ ',%4d' % (1000 * states('sensor.energy_discharge_hourly'  )|float) }}"
           own:  "{{ ',%4d' % (1000 * states('sensor.energy_own_use_hourly'    )|float) }}"
           bal:  "{{ ',%4d' % (1000 * states('sensor.energy_balance_hourly'    )|float) }}"
           imp:  "{{ ',%4d' % (1000 * states('sensor.energy_import_hourly'     )|float) }}"
           exp:  "{{ ',%4d' % (1000 * states('sensor.energy_export_hourly'     )|float) }}"
+          chrg: "{{ ',%4d' % (1000 * states('sensor.energy_charge_hourly'     )|float) }}"
+          disc: "{{ ',%4d' % (1000 * states('sensor.energy_discharge_hourly'  )|float) }}"
           volt: "{{ states('sensor.battery_voltage') }}"
           # unavailable values intentionally lead to missing output line
       - service: notify.energy_data
         data_template:
-          message: "{{time}}{{cons}}{{prod}}{{own}}{{bal}}{{imp}}{{exp}}{{chrg}}{{disc}},{{
-                      '%2.1f' % volt if is_number(volt) else ' 0' }}"
+          message: "{{ time}}{{cons}}{{prod}}{{own}}{{bal}}{{imp}}{{exp}}{{chrg}}{{disc}},{{
+                       '%2.1f' % volt if is_number(volt) else ' 0' }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
@@ -665,9 +660,11 @@ automation:
 #         msg: "{{ 'test' }}"
       - variables:
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-          cons: "{{ ',%7.2f' % (states('sensor.energy_consumption_minutely')|float / 60) }}"
-          prod: "{{ ',%7.2f' % (states('sensor.energy_production_minutely' )|float / 60) }}"
-          # unavailable values intentionally lead to missing output line
+          cons: "{{ states('sensor.energy_consumption_minutely') }}"
+          prod: "{{ states('sensor.energy_production_minutely' ) }}"
+      # unavailable consumption value intentionally leads to missing output line
+      - condition: "{{ is_number(cons) }}"
       - service: notify.profile_data
         data_template:
-          message: "{{time}}{{cons}}{{prod}}"
+          message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
+                                  '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
