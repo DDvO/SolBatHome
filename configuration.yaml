@@ -172,6 +172,55 @@ template:
           - unknown
           - unavailable
 
+  # https://community.home-assistant.io/t/noob-needs-help-to-convert-voltage-to-percentage/355021/12
+  # https://docs.google.com/spreadsheets/d/1SyzKUZ5_KxLB6megSLTXYv_1LlbcFqE4gxMgK8SrMvs/
+  - sensor:
+    - name: "Battery SoC"
+      unique_id: battery_soc_id
+      state_class: measurement
+      availability: "{{ is_number(states('sensor.battery_voltage')) }}"
+      state: >
+        {% set voltage = states('sensor.battery_voltage')|float %}
+        {% set curve = [
+            { "voltage": 20.0, "percentage":  0 },
+            { "voltage": 22.4, "percentage":  5 },
+            { "voltage": 24.0, "percentage":  9.5 },
+            { "voltage": 25.2, "percentage": 14 },
+            { "voltage": 25.6, "percentage": 20 },
+            { "voltage": 25.8, "percentage": 30 },
+            { "voltage": 26.0, "percentage": 40 },
+            { "voltage": 26.1, "percentage": 50 },
+            { "voltage": 26.2, "percentage": 60 },
+            { "voltage": 26.4, "percentage": 70 },
+            { "voltage": 26.6, "percentage": 80 },
+            { "voltage": 26.8, "percentage": 90 },
+            { "voltage": 27.0, "percentage": 99 },
+            { "voltage": 27.6, "percentage": 99.5 },
+            { "voltage": 29.2, "percentage":100 }
+          ]
+        %}
+        {% set minVoltage = curve[0].voltage %}
+        {% set maxVoltage = curve[curve|length-1].voltage %}
+        {% if voltage < minVoltage %}
+          0
+        {% elif voltage >= maxVoltage %}
+          100
+        {% else %}
+          {% for i in range(curve|length - 1)    %}
+            {% set v1 = curve[i    ].voltage     %}
+            {% set p1 = curve[i    ].percentage  %}
+            {% set v2 = curve[i + 1].voltage     %}
+            {% set p2 = curve[i + 1].percentage  %}
+            {% if v1 <= voltage and voltage < v2 %}
+              {% set percent = p1 + (p2 - p1) * ((voltage - v1) / (v2 - v1)) %}
+                {{ percent|round(0) if percent < 99 else percent|round(1) }}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      device_class: battery
+      unit_of_measurement: "%"
+    # icon: mdi:battery-medium  # using automatic icon instead
+
 # prefer using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
 # report 'unknown' or 'unavailable' (value from the Shelly integration) if both sources do not yield a number
 mqtt:
