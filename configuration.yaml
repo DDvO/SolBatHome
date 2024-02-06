@@ -576,13 +576,17 @@ input_number:
     mode: box
 
 # defining the inputs before the automations such that they can be modified without restarting HA
+# https://www.home-assistant.io/integrations/input_boolean/
+# input_* does not allow setting a unique_id - bug report https://github.com/home-assistant/core/issues/109741
 input_boolean:
   charge_enabled:
     name: Charge enabled
+    # unique_id: charge_enabled_id
     initial: "on"
     icon: mdi:battery-arrow-up-outline
   charge_logged:
     name: Charge logged
+    # unique_id: charge_logged_id
     icon: mdi:battery-arrow-up-outline
   discharge_enabled:
     name: Discharge enabled
@@ -594,17 +598,17 @@ input_boolean:
 
 input_number:
   target_charge:
-    name: Charge target balance
-    initial: 0
-    min: -100
-    max: 100
+    name: Target balance for charging
+    initial: 10
+    min: -50
+    max: 250
     step: 10
     icon: mdi:battery-arrow-up-outline
   target_discharge:
-    name: Discharge target balance
+    name: Target balance for discharging
     initial: 20
-    min: -100
-    max: 100
+    min: -150
+    max: 50
     step: 10
     icon: mdi:battery-arrow-down-outline
 
@@ -839,7 +843,9 @@ automation:
           - unavailable
     action:
       - variables:
-          # no need to check for full battery; this is handled by charger maximium voltage
+          voltage:  "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
+          ful_batt: "{{ voltage|float(99) >= 27.0 }}"         # if not available, assume full battery, to be on safe side
+          near_ful: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will not allow charging also with excess power
           threshold: "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
@@ -858,7 +864,7 @@ automation:
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(seconds=120) }}"
           long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=  5) }}"
-          turn_off: "{{ disabled or dark or disc_ing or (low_rate and long_on) }}"
+          turn_off: "{{ disabled or ful_batt or dark or near_ful or disc_ing or (low_rate and long_on) }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
@@ -898,10 +904,12 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %4d balance: %+5d charge old: %3d delta: %3d new: %3s / %3d%s' %
+          message: "{{ 'cons: %4d bal: %+5d charge old: %3d delta: %3d new: %3s / %3d%s' %
                     (cons | int(0), balance | int(0), old_rate, delta,
                     'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
-                    max_rate, ' disabled' if disabled else ' too dark' if dark else ' discharging' if disc_ing else '') }}"
+                    max_rate, ' disabled' if disabled else ' full battery' if ful_batt else
+                    ' too little sun' if dark else ' battery still nearly full' if near_ful else
+                    ' due to discharging' if disc_ing else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
