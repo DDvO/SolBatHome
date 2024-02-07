@@ -1155,7 +1155,7 @@ automation:
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
-  # overall control of charge vs. discharge depending on sun elevation, power balance, and battery voltage
+  # overall control of charge vs. discharge depending on sun elevation, battery voltage, power consumption and PV production
   - id: situation
     initial_state: true
     trigger:
@@ -1167,29 +1167,36 @@ automation:
     action:
       - variables:
           ele    : "{{ state_attr('sun.sun', 'elevation') }}"
-          excess : "{{ states('sensor.power_production')|float(0) - states('sensor.power_consumption')|float(0) }}"
-          voltage: "{{ states('sensor.battery_voltage') }}"
-      - if: "{{ ele > 1 and excess > 0 }}"
+          voltage: "{{ states('sensor.battery_voltage'  ) }}"
+          cons   : "{{ states('sensor.power_consumption') }}"
+          prod   : "{{ states('sensor.power_production' ) }}"
+          excess : "{{ prod|float(0) - cons|float(0) }}"
+      - if: "{{ ele|float(0) > 1 and is_number(cons) and is_number(prod) and excess > 0 }}"
         then:
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.excess_period
-      - if: "{{ ele < 1 }}"  # cannot expect excess power for the rest of the day
+      - if: "{{ ele|float(99) < 1 }}"  # surely no excess power possible (from sunset to sunrise)
         then:
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.excess_period
-      - if: "{{ voltage|float(0) >= 27.0 }}"
+      - if: "{{ voltage|float(0) >= 27.1 }}"
         then:
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.still_nearly_full
-      # need significant hysteresis here because battery voltage drops quickly after switching from charge to disharge
-      - if: "{{ voltage|float(99) < 26.0 }}"
+          # when nearly full, excess period is not relevant
+      # need significant hysteresis here because battery voltage drops quickly after switching from charge to disharge:
+      - if: "{{ states('input_boolean.still_nearly_full') == 'on' and voltage|float(99) < 26.5 }}"
         then:
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.still_nearly_full
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.excess_period
+          # maybe excess period is entered again later in the day
       - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
                        states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
