@@ -847,7 +847,7 @@ automation:
       - variables:
           voltage:  "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
           ful_batt: "{{ voltage|float(99) >= 27.0 }}"         # if not available, assume full battery, to be on safe side
-          near_ful: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will not allow charging also with excess power
+          near_full: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will not allow charging also with excess power
           threshold: "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
@@ -862,11 +862,11 @@ automation:
           delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          dark:     "{{ states('input_boolean.sunshine_period') == 'off' }}"
+          no_excess: "{{ states('input_boolean.excess_period') == 'off' }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(seconds=120) }}"
           long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=  5) }}"
-          turn_off: "{{ disabled or ful_batt or dark or near_ful or disc_ing or (low_rate and long_on) }}"
+          turn_off: "{{ disabled or ful_batt or no_excess or near_full or disc_ing or (low_rate and long_on) }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
@@ -910,7 +910,7 @@ automation:
                     (cons | int(0), balance | int(0), old_rate, delta,
                     'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
                     max_rate, ' disabled' if disabled else ' full battery' if ful_batt else
-                    ' too little sun' if dark else ' battery still nearly full' if near_ful else
+                    ' no excess happend or expected' if no_excess else ' battery still nearly full' if near_full else
                     ' due to discharging' if disc_ing else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
