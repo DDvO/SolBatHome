@@ -929,7 +929,8 @@ automation:
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
           voltage:  "{{ states('sensor.battery_voltage') }}"
-          low_batt: "{{ voltage|float(0) < 24 }}"    # if not avaiable, assume low battery, to be on safe side
+          low_batt: "{{ voltage|float(0) < 24.1 }}"    # if not avaiable, assume low battery, to be on safe side
+          # is this a problem? on low_batt, voltage recovers, then battery is discharged again where voltage drops quickly again, etc.
           near_ful: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will allow discharging also with still daylight
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
