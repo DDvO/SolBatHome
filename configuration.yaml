@@ -572,8 +572,8 @@ automation:
     action:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-          cons: "{{ states('sensor.power_consumption'        ) }}"
-        # bal:  "{{ states('sensor.power_balance'            ) }}"
+          con : "{{ states('sensor.power_consumption'        ) }}"
+        # bal : "{{ states('sensor.power_balance'            ) }}"
           prod: "{{ states('sensor.power_production'         ) }}"
           chrg: "{{ states('sensor.power_charge'             ) }}"
           disc: "{{ states('sensor.power_discharge'          ) }}"
@@ -595,7 +595,7 @@ automation:
           consumption: "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
       - service: notify.power_data
         data_template: # time zone: %z
-          # not using above 'cons' nor 'bal' to avoid potential inconsistencies with earlier values of powA/powB/powC
+          # not using above 'con' nor 'bal' to avoid potential inconsistencies with earlier values of powA/powB/powC
           message: "{{ time }},{{
                        '%7.2f' % consumption }},{{
                       ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?' }},{{
