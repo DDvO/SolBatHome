@@ -1165,6 +1165,9 @@ automation:
           chg_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
           dis_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
           charge_only: "{{ states('input_boolean.charge_only'   ) == 'on' }}"
+          charge_sum : "{{ states('sensor.energy_charge_sum'    )|float(0) }}"
+          dischg_sum : "{{ states('sensor.energy_discharge_sum' )|float(0) }}"
+          # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
           ele        : "{{ state_attr('sun.sun', 'elevation') }}"
           sun_down   : "{{ ele|float(99) < 1                  }}"  # surely no excess power possible from sunset to sunrise
           voltage    : "{{ states('sensor.battery_voltage'  ) }}"
@@ -1183,8 +1186,10 @@ automation:
               entity_id: input_boolean.charge_only
           - service: system_log.write
             data:
-              message: "{{ 'switching to charge-only mode after discharging %s kWh'
-                            % states('sensor.energy_last_discharge') }}"
+              message: "{{ 'switching to charge-only mode after discharging %.3f kWh due to %s' %
+                           (dischg_sum - states('input_number.energy_discharge_last')|float(0),
+                            'low battery' if low_batt else 'excess PV power') }}"
+              # for some reason, need to use '|float(0)' - see https://github.com/home-assistant/home-assistant.io/issues/30992
               logger: situation
               level: critical
           - service: input_number.set_value
@@ -1200,10 +1205,16 @@ automation:
               entity_id: input_boolean.charge_only
           - service: system_log.write
             data:
-              message: "{{ 'switching to discharge-only mode after charging %s kWh'
-                            % states('sensor.energy_last_charge') }}"
+              message: "{{ 'switching to discharge-only mode after charging %.3f kWh due to %s' %
+                           (charge_sum - states('input_number.energy_charge_last')|float(0),
+                            'sun down' if sun_down else 'full battery') }}"
               logger: situation
               level: critical
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.energy_charge_last
+            data:
+              value: "{{ charge_sum }}"
       - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
                        states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
