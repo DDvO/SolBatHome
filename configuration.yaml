@@ -960,6 +960,9 @@ automation:
               - service: button.press
                 target:
                   entity_id: button.hm_300_turn_inverter_off
+              - service: light.turn_off
+                target:
+                  entity_id: light.discharge_control # actually just indication
             # workaround for: "Invalid value for number.hm_300_limit_nonpersistent_absolute: 9.0 (range 10.0 - 2250.0)"
           - if: "{{ low_rate and old_rate != min_eff }}"
             then:
@@ -986,6 +989,11 @@ automation:
                   entity_id: number.hm_300_limit_nonpersistent_relative
                 data:
                   value: "{{ new_rate }}"
+              - service: light.turn_on  # value 0 would be reported by HA as 'Off'
+                target:
+                  entity_id: light.discharge_control # actually just indication
+                data:
+                  brightness_pct: "{{ new_rate / max_rate * 100 }}"
           # turn on only when needed
           - if: "{{ not disc_ing }}"
             then:

@@ -35,10 +35,15 @@ output:
   - platform: esp8266_pwm
     pin: D2
     frequency: 10 Hz
-    id: pwm_output_import
+    id: pwm_output_discharge
 
   - platform: esp8266_pwm
     pin: D3
+    frequency: 10 Hz
+    id: pwm_output_import
+
+  - platform: esp8266_pwm
+    pin: D4
     frequency: 10 Hz
     id: pwm_output_export
 
@@ -46,6 +51,10 @@ light:
   - platform: monochromatic
     output: pwm_output_charge
     name: "Charge control"
+
+  - platform: monochromatic
+    output: pwm_output_discharge
+    name: "Discharge control"
 
   - platform: monochromatic
     output: pwm_output_import
