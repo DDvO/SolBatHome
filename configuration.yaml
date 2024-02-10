@@ -275,6 +275,7 @@ sensor:
 
   # https://www.home-assistant.io/integrations/integration/
   # Riemann sums of power values (W) yielding energy (kWh)
+  # need to restart HA for modifications of this list to become effective
 
   - name: energy_balance_sum
     source: sensor.power_balance
@@ -369,6 +370,7 @@ sensor:
 
 utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
 # energy accumulators that are reset per hour, day, month, or year
+# need to restart HA for modifications of this list to become effective
 
   energy_balance_hourly:
     name: Energy Balance Hourly
