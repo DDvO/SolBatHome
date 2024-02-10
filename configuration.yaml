@@ -595,15 +595,13 @@ automation:
           consumption: "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
       - service: notify.power_data
         data_template: # time zone: %z
-          # not using above 'con' nor 'bal' to avoid potential inconsistencies with earlier values of powA/powB/powC
-          message: "{{ time }},{{
-                       '%7.2f' % consumption }},{{
-                      ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?' }},{{
-                      ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?' }},{{
-                      ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?' }},{{
-                       '%7.2f' % powA }},{{
-                       '%7.2f' % powB }},{{
-                       '%7.2f' % powC }}"
+          # not using 'con' above to avoid potential inconsistencies with earlier values of powA/powB/powC
+          message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f' %
+                       (time, consumption,
+                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
+                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
+                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
+                        powA, powB, powC) }}"
       - service: light.turn_on
         target:
           entity_id: light.power_import
@@ -626,20 +624,19 @@ automation:
     action:
       - variables:
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-          # placing commas already here as otherwise leading spaces would be discarded on concatenation
-          cons: "{{ ',%4d' % (1000 * states('sensor.energy_consumption_hourly')|float) }}"
-          prod: "{{ ',%4d' % (1000 * states('sensor.energy_production_hourly' )|float) }}"
-          own:  "{{ ',%4d' % (1000 * states('sensor.energy_own_use_hourly'    )|float) }}"
-          bal:  "{{ ',%4d' % (1000 * states('sensor.energy_balance_hourly'    )|float) }}"
-          imp:  "{{ ',%4d' % (1000 * states('sensor.energy_import_hourly'     )|float) }}"
-          exp:  "{{ ',%4d' % (1000 * states('sensor.energy_export_hourly'     )|float) }}"
-          chrg: "{{ ',%4d' % (1000 * states('sensor.energy_charge_hourly'     )|float) }}"
-          disc: "{{ ',%4d' % (1000 * states('sensor.energy_discharge_hourly'  )|float) }}"
+          cons: "{{ 1000 * states('sensor.energy_consumption_hourly')|float }}"
+          prod: "{{ 1000 * states('sensor.energy_production_hourly' )|float }}"
+          own:  "{{ 1000 * states('sensor.energy_own_use_hourly'    )|float }}"
+          bal:  "{{ 1000 * states('sensor.energy_balance_hourly'    )|float }}"
+          imp:  "{{ 1000 * states('sensor.energy_import_hourly'     )|float }}"
+          exp:  "{{ 1000 * states('sensor.energy_export_hourly'     )|float }}"
+          chrg: "{{ 1000 * states('sensor.energy_charge_hourly'     )|float }}"
+          disc: "{{ 1000 * states('sensor.energy_discharge_hourly'  )|float }}"
           volt: "{{ states('sensor.battery_voltage') }}"
           # unavailable values intentionally lead to missing output line
       - service: notify.energy_data
         data_template:
-          message: "{{ time}}{{cons}}{{prod}}{{own}}{{bal}}{{imp}}{{exp}}{{chrg}}{{disc}},{{
+          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%4d' % (time, cons, prod, own, bal, imp, exp, chrg, disc) }},{{
                        '%2.1f' % volt if is_number(volt) else ' 0' }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
