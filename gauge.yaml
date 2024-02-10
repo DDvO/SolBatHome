@@ -1,0 +1,53 @@
+title: gauges
+# https://developers.home-assistant.io/docs/frontend/custom-ui/custom-card/
+# https://www.home-assistant.io/dashboards/views/
+views:
+  - name: view example
+
+# https://www.home-assistant.io/dashboards/gauge/
+    cards:
+      - type: gauge
+        entity: sensor.battery_soc
+        name: Battery SoC
+        min: 0
+        max: 100
+        needle: true
+        segments:
+          - from: 0
+            color: red    # '#db4437'
+          - from: 9.5
+            color: orange # '#ffa600'
+          - from: 14
+            color: green  # '#43a047'
+          - from: 98
+            color: orange # '#ffa600'
+          - from: 99
+            color: red    # '#db4437'
+      - type: gauge
+        entity: sensor.power_balance
+        name: Power balance
+        min: -400
+        max:  400
+        needle: true
+        segments:
+          - from: -400
+            color: '#ff0000'
+          - from: -300
+            color: '#ff5000'
+          - from: -100
+            color: '#ff8000'
+          - from: -50
+            color: '#ffa600'
+          - from: -10
+            color: '#039f07'
+          - from: 20
+            color: '#63c067'
+          - from: 100
+            color: '#83d887'
+          - from: 300
+            color: '#a3f0a7'
+        #severity:
+        #  red: -300
+        #  yellow: 5
+        #  green: 300
+        #  blue: 600
