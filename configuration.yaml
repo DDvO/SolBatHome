@@ -70,6 +70,47 @@ template:
             mdi:scale-unbalanced
           {% endif %}
 
+      # derived values needed for Riemann sums (integrations)
+
+      - name: power_consumption
+        unique_id: power_consumption_id
+        # friendly_name: "Power Consumption"
+        device_class: power
+        unit_of_measurement: 'W'
+        availability: "{{ is_number(states('sensor.power_balance')) }}"
+        state: >
+          {{ states('sensor.power_balance'   )|float    +
+             states('sensor.power_production')|float(0) -
+             states('sensor.power_charge'    )|float(0) +
+             states('sensor.power_discharge' )|float(0) }}
+        # despite availability, still need to use '|float' to convert the type, see https://github.com/home-assistant/home-assistant.io/issues/30992
+
+      - name: power_import  # on power_balance > 0
+        unique_id: power_import_id
+        # friendly_name: "Power Import"
+        device_class: power
+        unit_of_measurement: 'W'
+        state: >
+          {{ max([0, states('sensor.power_balance')|float(0)]) }}
+
+      - name: power_export  # on power_balance < 0
+        unique_id: power_export_id
+        # friendly_name: "Power Export"
+        device_class: power
+        unit_of_measurement: 'W'
+        state: >
+          {{ max([0, 0 - states('sensor.power_balance')|float(0)]) }}
+
+      - name: power_own_use  # of PV power
+        unique_id: power_own_use_id
+        # friendly_name: "Power Own Use (self-consumption)"
+        device_class: power
+        unit_of_measurement: 'W'
+        availability: "{{ is_number(states('sensor.power_consumption')) and
+                          is_number(states('sensor.power_production' )) }}"
+        state: >
+          {{ min(states('sensor.power_consumption')|float, states('sensor.power_production')|float) }}
+
 # https://community.home-assistant.io/t/use-last-value-instead-of-unknown/614331/4
 # stable sensors using last known value of base sensor if current value is unknown
 
@@ -172,54 +213,13 @@ mqtt:
 
 # sensor: !include sensor.yaml
 sensor:
-  - platform: template # https://www.home-assistant.io/integrations/template/
-    sensors:
 
     # beware that adding needless derived sensors would be inefficient, see
     # https://www.shelly-support.eu/forum/thread/8977-shelly-3em-phasen-saldieren-in-home-assistant/?postID=218747#post218747
 
-    # derived values needed for Riemann sums (integrations)
-
-      power_import:  # on power_balance > 0
-        unique_id: power_import_id
-        friendly_name: "Power Import"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {{ max([0, states('sensor.power_balance')|float(0)]) }}
-
-      power_export:  # on power_balance < 0
-        unique_id: power_export_id
-        friendly_name: "Power Export"
-        device_class: power
-        unit_of_measurement: 'W'
-        value_template: >-
-          {{ max([0, 0 - states('sensor.power_balance')|float(0)]) }}
-
-      power_consumption:
-        unique_id: power_consumption_id
-        friendly_name: "Power Consumption"
-        device_class: power
-        unit_of_measurement: 'W'
-        availability_template: "{{ is_number(states('sensor.power_balance')) }}"
-        value_template: >-
-          {{ states('sensor.power_balance'   )|float    +
-             states('sensor.power_production')|float(0) -
-             states('sensor.power_charge'    )|float(0) +
-             states('sensor.power_discharge' )|float(0) }}
-      # for some reason, despite availability_template, still need to use '|float' see https://github.com/home-assistant/home-assistant.io/issues/30992
-
-      power_own_use:
-        unique_id: power_own_use_id
-        friendly_name: "Power Own Use (self-consumption)"
-        device_class: power
-        unit_of_measurement: 'W'
-        availability_template: "{{ is_number(states('sensor.power_consumption')) and
-                                   is_number(states('sensor.power_production' )) }}"
-        value_template: >-
-          {{ min(states('sensor.power_consumption')|float, states('sensor.power_production')|float) }}
-      # for some reason, despite availability still need to use '|float' - see https://github.com/home-assistant/home-assistant.io/issues/30992
-
+# - platform: template # https://www.home-assistant.io/integrations/template/
+#   sensors:
+#
 #     # workaround for former issue with power production sensor, leading to yields unavailable untility_metervalue with unknown meaturement unit
 #     energy0_production_hourly:
 #       friendly_name: "Energy Production Hourly (workaround)"
