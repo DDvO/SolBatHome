@@ -845,10 +845,10 @@ automation:
           - unavailable
     action:
       - variables:
-          voltage:  "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
-          ful_batt: "{{ voltage|float(99) >= 27.0 }}"         # if not available, assume full battery, to be on safe side
-          near_full: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will not allow charging also with excess power
-          threshold: "{{ 2 }}"
+          voltage   : "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
+          full_batt : "{{ voltage|float(99) >= 27.1 }}"         # if voltage not available, assume full battery, to be on safe side
+          empty_batt: "{{ voltage|float(99) <  23.1 }}"         # if voltage not available, assume no emergency
+          threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
           charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
@@ -860,13 +860,14 @@ automation:
           gradient: "{{ ((balance - target) * -0.25) | int }}"
           old_rate: "{{ max(min_rate, states.light.charge_control.attributes.brightness|int(0)) }}"
           delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
-          new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
-          low_rate: "{{ new_rate < min_rate }}"
-          no_excess: "{{ states('input_boolean.excess_period') == 'off' }}"
+          new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate, (old_rate if charging else 0) + delta)) }}"
+          rate_min: "{{ new_rate < min_rate }}"
+          dis_only: "{{ states('input_boolean.charge_only') == 'off' }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
-          long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(seconds=120) }}"
-          long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=  5) }}"
-          turn_off: "{{ disabled or ful_batt or no_excess or near_full or disc_ing or (low_rate and long_on) }}"
+          long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(minutes=2) }}"
+          long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=5) }}"
+          long_min: "{{ rate_min and long_on }}"
+          turn_off: "{{ disabled or full_batt or dis_only or disc_ing or long_min }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
@@ -901,17 +902,16 @@ automation:
                 data:
                   entity_id: input_text.charging_last_turned_on
                   value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
-      - condition: state
-        entity_id: input_boolean.charge_logged
-        state: "on"
+      - condition: "{{ states('input_boolean.charge_logged') == 'on' or empty_batt }}"
       - service: system_log.write
         data:
           message: "{{ 'cons: %4d bal: %+5d charge old: %3d delta: %3d new: %3s / %3d%s' %
                     (cons | int(0), balance | int(0), old_rate, delta,
-                    'off' if turn_off else 'min' if new_rate <= min_rate else 'max' if new_rate == max_rate else new_rate,
-                    max_rate, ' disabled' if disabled else ' full battery' if ful_batt else
-                    ' no excess happend or expected' if no_excess else ' battery still nearly full' if near_full else
-                    ' due to discharging' if disc_ing else '') }}"
+                    'off' if turn_off else 'min' if new_rate <= min_rate else
+                    'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
+                    ' disabled' if disabled else ('%s battery' % ('full' if is_number(voltage) else 'no')) if full_batt else
+                    ' discharge-only mode' if dis_only else ' still discharging' if disc_ing else
+                    ' at min for > 2 minutes' if long_min else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
