@@ -1182,8 +1182,8 @@ automation:
           chg_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
           dis_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
           charge_only: "{{ states('input_boolean.charge_only'   ) == 'on' }}"
-          charge_sum : "{{ states('sensor.energy_charge_sum'    )|float(0) }}"
-          dischg_sum : "{{ states('sensor.energy_discharge_sum' )|float(0) }}"
+          charge_sum : "{{ states('sensor.energy_charge_sum'    )         }}"
+          dischg_sum : "{{ states('sensor.energy_discharge_sum' )         }}"
           # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
           ele        : "{{ state_attr('sun.sun', 'elevation') }}"
           sun_down   : "{{ ele|float(99) < 1                  }}"  # surely no excess power possible from sunset to sunrise
@@ -1201,11 +1201,12 @@ automation:
           time_soc   : "{{ '%s,%s,%2d' % (time, '%2.1f' % voltage if is_number(voltage) else '0   ', soc) }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
-          dis_diff   : "{{ dischg_sum - dis_last|float(0) }}"
-          chg_diff   : "{{ charge_sum - chg_last|float(0) }}"
+          dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
+          chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
           chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power' }}"
           dis_reason : "{{ 'sun down' if sun_down else 'full battery'                      }}"
-      - if: "{{ chg_enabled and not charge_only and (empty_batt or excess_and_not_still_nearly_full) }}"
+      - if: "{{ chg_enabled and not charge_only and (empty_batt or excess_and_not_still_nearly_full)
+                and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         then:
           - service: input_boolean.turn_on
             target:
@@ -1224,7 +1225,8 @@ automation:
               entity_id: input_number.energy_discharge_last
             data:
               value: "{{ dischg_sum }}"
-      - if: "{{ dis_enabled and charge_only and not low_batt and (sun_down or full_batt) }}"
+      - if: "{{ dis_enabled and charge_only and (is_number(voltage) and not low_batt) and (sun_down or full_batt)
+                and is_number(charge_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         # when battery full, switch to discharge-only mode as long as it is still nearly full, with hysteresis (see above)
         then:
           - service: input_boolean.turn_off
