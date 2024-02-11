@@ -1197,8 +1197,9 @@ automation:
           excess_and_not_still_nearly_full: "{{ voltage|float(99) < 26.5 and is_number(cons) and is_number(prod) and excess > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
           time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
-          soc        : "{{ states('sensor.battery_soc')|int(0)          }}"
-          time_soc   : "{{ '%s,%s,%2d' % (time, '%2.1f' % voltage if is_number(voltage) else '0   ', soc) }}"
+          vstr: "{{ '%2.1f' % voltage if is_number(voltage) else ' 0  ' }}"
+          soc        : "{{ states('sensor.battery_soc')                 }}"
+          time_soc   : "{{ '%s,%s,%2d' % (time, vstr, soc|int(0))       }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
@@ -1249,7 +1250,7 @@ automation:
                        states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'sun elevation: %s°, battery: %sV, mode: %s only'
-                        % (ele|round(1), voltage, 'charge' if charge_only else 'discharge') }}"
+          message: "{{ 'sun elevation: %.1f°, battery:' % ele|round(1) }} {{ voltage }} {{ 'V ' }}{{ soc }} %,
+                    {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
