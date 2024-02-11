@@ -572,48 +572,57 @@ automation:
     action:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-          con : "{{ states('sensor.power_consumption'        ) }}"
-        # bal : "{{ states('sensor.power_balance'            ) }}"
           prod: "{{ states('sensor.power_production'         ) }}"
           chrg: "{{ states('sensor.power_charge'             ) }}"
           disc: "{{ states('sensor.power_discharge'          ) }}"
           powA: "{{ states('sensor.shelly3em_channel_a_power') }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power') }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power') }}"
-      - if: "{{ cons|float(-1) <= 0 }}"
+        # not using 'con' nor 'bal' in order to (partially) avoid inconsistencies with earlier values of powA/powB/powC
+        # con : "{{ states('sensor.power_consumption'        ) }}"
+        # bal : "{{ states('sensor.power_balance'            ) }}"
+      # on unavailable per-channel power values, warn but do not output line of data
+      - if: "{{ not is_number(powA) or not is_number(powB) or not is_number(powC) }}"
         then:
           # https://www.home-assistant.io/integrations/system_log/
           - service: system_log.write
             data:
-              message: "{{ 'power_consumption is not positive: %s' % cons }}"
+              message: "{{ 'per-channel value(s) of power_balance not available:' }} {{ powA }} {{ powB }} {{ powC }}"
               logger: home
               level: warning
-      # on unavailable per-channel power values, do not output line of data
-      - condition: "{{ is_number(powA) and is_number(powB) and is_number(powC)     }}"
-      - variables:
-          balance    : "{{ powA + powB + powC                                      }}"
-          consumption: "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
-      - service: notify.power_data
-        data_template: # time zone: %z
-          # not using 'con' above to avoid potential inconsistencies with earlier values of powA/powB/powC
-          message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f' %
-                       (time, consumption,
-                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
-                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
-                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
-                        powA, powB, powC) }}"
-      - service: light.turn_on
-        target:
-          entity_id: light.power_import
-        data:
-          brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
-          # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
-          # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
-      - service: light.turn_on
-        target:
-          entity_id: light.power_export
-        data:
-          brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
+        else:
+          - variables:
+              balance: "{{ powA + powB + powC                                      }}"
+              cons   : "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
+          # warn but do not output line of data on consumption appearing negative when charging bounced up while balance has not been updated yet
+          - if: "{{ cons <= 0 }}"
+            then:
+              - service: system_log.write
+                data:
+                  message: "{{ 'power consumption is not positive:' }} {{ cons }}"
+                  logger: home
+                  level: warning
+            else:
+              - service: notify.power_data
+                data_template: # time zone: %z
+                  message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f' %
+                               (time, cons,
+                                ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
+                                ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
+                                ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
+                                powA, powB, powC) }}"
+              - service: light.turn_on
+                target:
+                  entity_id: light.power_import
+                data:
+                  brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
+                  # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
+                  # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
+              - service: light.turn_on
+                target:
+                  entity_id: light.power_export
+                data:
+                  brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
 
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
@@ -632,12 +641,15 @@ automation:
           exp:  "{{ 1000 * states('sensor.energy_export_hourly'     )|float }}"
           chrg: "{{ 1000 * states('sensor.energy_charge_hourly'     )|float }}"
           disc: "{{ 1000 * states('sensor.energy_discharge_hourly'  )|float }}"
-          volt: "{{ states('sensor.battery_voltage') }}"
+          volt: "{{ states('sensor.battery_voltage')              }}"
+          soc : "{{ states('sensor.battery_soc')                  }}"
           # unavailable values intentionally lead to missing output line
       - service: notify.energy_data
         data_template:
-          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%4d' % (time, cons, prod, own, bal, imp, exp, chrg, disc) }},{{
-                       '%2.1f' % volt if is_number(volt) else ' 0' }}"
+          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%s,%s' %
+                       (time, cons, prod, own, bal, imp, exp, chrg, disc,
+                        '%2.1f' % volt if is_number(volt) else ' 0  ',
+                        '%2.1f' % soc  if is_number(soc ) else ' 0  ') }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
