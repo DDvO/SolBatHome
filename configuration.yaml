@@ -53,10 +53,15 @@ template:
         # friendly_name: "Power Balance" # " at distribution box"
         device_class: power
         unit_of_measurement: 'W'
+        # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
+        availability: >
+          {{ is_number(states('sensor.shelly3em_channel_a_power')) and
+             is_number(states('sensor.shelly3em_channel_b_power')) and
+             is_number(states('sensor.shelly3em_channel_c_power')) }}
         state: >
-          {{ states('sensor.shelly3em_channel_a_power')|float
-           + states('sensor.shelly3em_channel_b_power')|float
-           + states('sensor.shelly3em_channel_c_power')|float }}
+          {{ states('sensor.shelly3em_channel_a_power')|float +
+             states('sensor.shelly3em_channel_b_power')|float +
+             states('sensor.shelly3em_channel_c_power')|float }}
         # https://community.home-assistant.io/t/template-sensor-using-this-variable/420200/4
         # https://www.home-assistant.io/integrations/switch.template/#change-the-icon
         icon: >
@@ -77,12 +82,20 @@ template:
         # friendly_name: "Power Consumption"
         device_class: power
         unit_of_measurement: 'W'
-        availability: "{{ is_number(states('sensor.power_balance')) }}"
+        # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
+        availability: >
+          {{ is_number(states('sensor.shelly3em_channel_a_power')) and
+             is_number(states('sensor.shelly3em_channel_b_power')) and
+             is_number(states('sensor.shelly3em_channel_c_power')) }}
         state: >
-          {{ states('sensor.power_balance'   )|float    +
-             states('sensor.power_production')|float(0) -
-             states('sensor.power_charge'    )|float(0) +
-             states('sensor.power_discharge' )|float(0) }}
+          {{ max(0, states('sensor.shelly3em_channel_a_power')|float +
+                    states('sensor.shelly3em_channel_b_power')|float +
+                    states('sensor.shelly3em_channel_c_power')|float +
+                    states('sensor.power_production')|float(0) -
+                    states('sensor.power_charge'    )|float(0) +
+                    states('sensor.power_discharge' )|float(0)) }}
+        # not using states('sensor.power_balance'), which partially avoids inconsistencies with earlier values of powA/powB/powC
+        # using "max(0, ...)" as workaround for consumption appearing negative because charging jumped high while balance has not been updated yet
         # despite availability, still need to use '|float' to convert the type, see https://github.com/home-assistant/home-assistant.io/issues/30992
 
       - name: power_import  # on power_balance > 0
@@ -90,16 +103,18 @@ template:
         # friendly_name: "Power Import"
         device_class: power
         unit_of_measurement: 'W'
+        availability: "{{ is_number(states('sensor.power_balance')) }}"
         state: >
-          {{ max([0, states('sensor.power_balance')|float(0)]) }}
+          {{ max(0, states('sensor.power_balance')|float) }}
 
       - name: power_export  # on power_balance < 0
         unique_id: power_export_id
         # friendly_name: "Power Export"
         device_class: power
         unit_of_measurement: 'W'
+        availability: "{{ is_number(states('sensor.power_balance')) }}"
         state: >
-          {{ max([0, 0 - states('sensor.power_balance')|float(0)]) }}
+          {{ max(0, 0 - states('sensor.power_balance')|float) }}
 
       - name: power_own_use  # of PV power
         unique_id: power_own_use_id
@@ -110,6 +125,7 @@ template:
                           is_number(states('sensor.power_production' )) }}"
         state: >
           {{ min(states('sensor.power_consumption')|float, states('sensor.power_production')|float) }}
+        # may go wrong if consumption and production sensor values are not consistent in time
 
 # https://community.home-assistant.io/t/use-last-value-instead-of-unknown/614331/4
 # stable sensors using last known value of base sensor if current value is unknown
