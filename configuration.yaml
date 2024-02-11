@@ -848,6 +848,7 @@ automation:
           voltage   : "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
           full_batt : "{{ voltage|float(99) >= 27.1 }}"         # if voltage not available, assume full battery, to be on safe side
           empty_batt: "{{ voltage|float(99) <  23.1 }}"         # if voltage not available, assume no emergency
+          # after charging to target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
@@ -905,7 +906,7 @@ automation:
       - condition: "{{ states('input_boolean.charge_logged') == 'on' or empty_batt }}"
       - service: system_log.write
         data:
-          message: "{{ 'cons: %4d bal: %+5d charge old: %3d delta: %3d new: %3s / %3d%s' %
+          message: "{{ 'cons: %4d bal: %+5d charge old: %3d delta: %+4d new: %3s / %3d%s' %
                     (cons | int(0), balance | int(0), old_rate, delta,
                     'off' if turn_off else 'min' if new_rate <= min_rate else
                     'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
@@ -1007,7 +1008,7 @@ automation:
       - condition: "{{ states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'cons: %4d bal: %+5d dischg old: %3d delta: %3d new: %3s / %3d%s' %
+          message: "{{ 'cons: %4d bal: %+5d dischg old: %3d delta: %+4d new: %3s / %3d%s' %
                        (cons | int(0), balance | int(0), old_rate, delta,
                        'off' if turn_off else 'min' if new_rate <= min_rate else 'eff' if new_rate == min_eff else
                        'max' if new_rate == max_rate else '%3d' % new_rate, max_rate,
