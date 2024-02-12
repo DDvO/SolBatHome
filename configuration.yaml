@@ -250,6 +250,7 @@ mqtt:
 
 # sensor: !include sensor.yaml
 sensor:
+  # need to restart HA for modifications of this list to become effective
 
     # beware that adding needless derived sensors would be inefficient, see
     # https://www.shelly-support.eu/forum/thread/8977-shelly-3em-phasen-saldieren-in-home-assistant/?postID=218747#post218747
@@ -275,7 +276,6 @@ sensor:
 
   # https://www.home-assistant.io/integrations/integration/
   # Riemann sums of power values (W) yielding energy (kWh)
-  # need to restart HA for modifications of this list to become effective
 
   - name: energy_balance_sum
     source: sensor.power_balance
@@ -621,7 +621,6 @@ input_number:
     max: +999999
     mode: box
 
-# (ab-)using input for remembering value in automation https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
 input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
@@ -834,6 +833,25 @@ automation:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
 
+  - id: update_power_balance_avg
+    initial_state: true
+    trigger:
+      - platform: time_pattern
+        seconds: "/1"
+    action:
+      # upward rolling average over 3 seconds, used to smoothen peaks in particular on fridge compressor startup
+      # https://community.home-assistant.io/t/input-number-moving-average-calculation/453728/1
+      # value of platform: statistics would be often 'Unknown' and does not really provide rolling average
+      - variables:
+          samples: "{{ 3 }}"
+          prev   : "{{ states('input_number.power_balance_avg') }}"
+          curr   : "{{ states('sensor.power_balance')| float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.power_balance_avg
+        data:
+          value: "{{ (curr if curr < prev else (prev * (samples-1) + curr) / samples)| round(0) }}"
+
   # control battery charging with the goal that exactly any excess power is used for this
   # would be nice, but can only switch on and off: https://edistechlab.com/ein-thermostat-in-home-assistant-erstellen/?v=3a52f3c22ed6
   - id: control_battery_charging
@@ -935,7 +953,7 @@ automation:
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
-          balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
+          balance:  "{{ states('input_number.power_balance_avg') }}"
           target:   "{{ states('input_number.target_discharge') }}"
         # absolute values for discharge control would be more precise, but Hoymiles latency is way too high when using them
           min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
