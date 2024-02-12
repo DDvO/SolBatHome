@@ -924,7 +924,7 @@ automation:
 #        not_to:  # maybe no more needed
 #          - unavailable
       - platform: time_pattern
-        seconds: "/9"  # unfortunately, HM-300 inverter reacts slowly and partly even erratically if changes requested more often
+        seconds: "/9"  # unfortunately, Hoymiles inverter react slowly and partly even erratically if changes requested more often
     action:
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
@@ -937,13 +937,14 @@ automation:
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
           target:   "{{ states('input_number.target_discharge') }}"
+        # absolute values for discharge control would be more precise, but Hoymiles latency is way too high when using them
           min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
           min_eff:  "{{ 10 }}"  # min percent value for HM-300 where efficiency is considered acceptable (at least some 90%)
           min_pow:  "{{ 25 }}"  # output power corresponding to min_eff limit value, used to prevent on/off oscillation
           max_rate: "{{ 76 }}"  # max percent value for HM-300 where actual output power is below 300 W
         # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          gradient: "{{ ((balance - target) * 0.18) | int }}"  # higher factor leads to overshooting
+          gradient: "{{ ((balance - target) * 0.25) | int }}"  # higher factor leads to overshooting
           old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
           new_rate: "{{ max(min_rate, min(max_rate, old_rate + delta)) }}"
