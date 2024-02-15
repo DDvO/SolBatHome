@@ -578,11 +578,14 @@ automation:
           powA: "{{ states('sensor.shelly3em_channel_a_power') }}"
           powB: "{{ states('sensor.shelly3em_channel_b_power') }}"
           powC: "{{ states('sensor.shelly3em_channel_c_power') }}"
-        # not using 'con' nor 'bal' in order to (partially) avoid inconsistencies with earlier values of powA/powB/powC
-        # con : "{{ states('sensor.power_consumption'        ) }}"
+        # not using 'bal' nor 'con' in order to (partially) avoid inconsistencies with earlier values of powA/powB/powC
         # bal : "{{ states('sensor.power_balance'            ) }}"
-      # on unavailable per-channel power values, warn but do not output line of data
-      - if: "{{ not is_number(powA) or not is_number(powB) or not is_number(powC) }}"
+        # con : "{{ states('sensor.power_consumption'        ) }}"
+          balance: "{{ powA|float(0) + powB|float(0) + powC|float(0)           }}"
+          cons   : "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
+          unav: "{{ not is_number(powA) or not is_number(powB) or not is_number(powC) }}"
+      # warn on unavailable per-channel power values
+      - if: "{{ unav }}"
         then:
           # https://www.home-assistant.io/integrations/system_log/
           - service: system_log.write
@@ -590,39 +593,35 @@ automation:
               message: "{{ 'per-channel value(s) of power_balance not available:' }} {{ powA }} {{ powB }} {{ powC }}"
               logger: home
               level: warning
-        else:
-          - variables:
-              balance: "{{ powA + powB + powC                                      }}"
-              cons   : "{{ balance + prod|float(0) - chrg|float(0) + disc|float(0) }}"
-          # warn but do not output line of data on consumption appearing negative when charging bounced up while balance has not been updated yet
-          - if: "{{ cons <= 0 }}"
-            then:
-              - service: system_log.write
-                data:
-                  message: "{{ 'power consumption is not positive:' }} {{ cons }}"
-                  logger: home
-                  level: warning
-            else:
-              - service: notify.power_data
-                data_template: # time zone: %z
-                  message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f' %
-                               (time, cons,
-                                ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
-                                ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
-                                ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
-                                powA, powB, powC) }}"
-              - service: light.turn_on
-                target:
-                  entity_id: light.power_import
-                data:
-                  brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
-                  # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
-                  # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
-              - service: light.turn_on
-                target:
-                  entity_id: light.power_export
-                data:
-                  brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
+      # warn on consumption appearing non-positive (typically when charging bounced up while balance has not been updated yet)
+      - if: "{{ not unav and cons <= 0 }}"
+        then:
+          - service: system_log.write
+            data:
+              message: "{{ 'power_consumption is not positive:' }} {{ cons }}"
+              logger: home
+              level: warning
+      - service: notify.power_data
+        data_template: # time zone: %z
+          message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f,%s' %
+                       (time, 0 if unav else cons,
+                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
+                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
+                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
+                        powA, powB, powC,
+                        'per-channel powers unavailable' if unav else 'consumption non-positive' if cons <= 0 else '') }}"
+      - service: light.turn_on
+        target:
+          entity_id: light.power_import
+        data:
+          brightness_pct: "{{ min(100, max(0, (balance - 30) * 100 / 200)) }}"  # TODO replace '30' by discharge target + 10
+          # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
+          # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
+      - service: light.turn_on
+        target:
+          entity_id: light.power_export
+        data:
+          brightness_pct: "{{ min(100, max(0, (0 - balance) * 100 / 200)) }}"  # TODO replace '0' by charge target - 10
 
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
   - id: energy_data_to_file
