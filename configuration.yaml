@@ -536,7 +536,7 @@ utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
     source: sensor.power_production_sum
     cron: "* * * * *"
 
-input_number:
+
 # (ab-)using input_number for defining global constants
 # https://community.home-assistant.io/t/create-a-constant/15686/21
   storage_efficiency:  # overall storage efficiency: charging, storing, and discharging = AC output / AC input
@@ -551,6 +551,32 @@ input_number:
     max: 2600
     step: 10
     icon: mdi:battery-sync-outline
+
+  last_voltage_at_rest:  # battery voltage on SoC update at rest, not having been (dis)charged for a while
+    initial: 0
+    min:  0
+    max: 60
+  last_soc_at_rest:  # battery SoC on SoC update at rest
+    initial: 0
+    min: 0
+    max: 100
+
+  empty_battery:
+    initial: 23.1
+    min: 0
+    max: 100
+  low_battery:
+    initial: 24.3
+    min: 0
+    max: 100
+  near_battery: # nearly full (after charge)
+    initial: 26.9
+    min: 0
+    max: 100
+  full_battery:
+    initial: 28.9
+    min: 0
+    max: 100
 
 # (ab-)using input_{number,text} for remembering value in automation
 # https://community.home-assistant.io/t/why-the-heck-dont-we-have-global-variables/219671/86
@@ -569,16 +595,6 @@ input_number:
     min: 0
     max: +999999
     mode: box
-
-# (ab-)using input for remembering value in automation https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
-  last_voltage_at_rest:  # battery voltage on SoC update at rest, not having been (dis)charged for a while
-    initial: 0
-    min:  0
-    max: 60
-  last_soc_at_rest:  # battery SoC on SoC update at rest
-    initial: 0
-    min: 0
-    max: 100
 
   power_balance_avg:
     name: Power Balance Rolling Average
