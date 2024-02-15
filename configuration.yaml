@@ -1187,9 +1187,8 @@ automation:
       - platform: state
         entity_id: sensor.battery_voltage
     action:
+      - condition: "{{ states('input_boolean.situation_enabled') == 'on' }}"
       - variables:
-          chg_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
-          dis_enabled: "{{ states('input_boolean.charge_enabled') == 'on' }}"
           charge_only: "{{ states('input_boolean.charge_only'   ) == 'on' }}"
           charge_sum : "{{ states('sensor.energy_charge_sum'    )         }}"
           dischg_sum : "{{ states('sensor.energy_discharge_sum' )         }}"
@@ -1228,14 +1227,15 @@ automation:
                            (avail - 1800) / 200 if avail < 2000 else 25 }}"  # likely hours of possible discharge until sunrise
           next_rising: "{{ as_timestamp(states('sensor.sun_next_rising'))}}"
           to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
-          should_dis : "{{ hours_avail >= to_sunrise                    }}"  # start discharging to reach low_batt by sunrise
+          should_dis : "{{ hours_avail >= to_sunrise                    }}"  # should discharge to reach low_batt by sunrise
           time_soc   : "{{ '%s,%s,%2d' % (time, vstr, soc|int(0))       }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
           chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
           chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power' }}"
-          dis_reason : "{{ 'sun down and should discharge now' if sun_down and should_dis else 'full battery' }}"
+          dis_reason : "{{ 'sun down' if sun_down else 'full battery' }}"
+          dis_message: "{{ ', should%s discharge now' % ('' if should_dis else ' not') }}"
       - if: "{{ not charge_only and (empty_batt or excess_and_not_still_nearly_full)
                 and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         then:
@@ -1269,12 +1269,12 @@ automation:
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.charge_only
-          - service: input_boolean.turn_off
-            target:
-              entity_id: input_boolean.charge_enabled
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.discharge_enabled
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.charge_enabled
           - service: notify.battery_data
             data_template:
               message: "{{ '%s,%1.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
@@ -1288,11 +1288,23 @@ automation:
               entity_id: input_number.energy_charge_last
             data:
               value: "{{ charge_sum }}"
-      - condition: "{{ states('input_boolean.sitation_logged') == 'on' and is_number(voltage) }}"
+      - if: "{{ states('input_boolean.charge_only') != 'on' }}"
+        then:
+          if: "{{ should_dis }}"
+          then:
+            - service: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.discharge_enabled
+          else:
+            - service: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.discharge_enabled
+      - condition: "{{ states('input_boolean.situation_logged') == 'on' and is_number(voltage) }}"
       - service: system_log.write
         data:
           message: "{{ 'sun elevation: %.1f°, battery:' % ele|round(1) }} {{ voltage }} {{ 'V ' }}{{ soc }} %,
                     {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }};
-                    {{ 'discharge potential: %.1f hours' % hours_avail }}"
+                    {{ 'discharge potential: %.1f hours' % hours_avail }}{{
+                       '' if states('input_boolean.charge_only') == 'on' else dis_message }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
