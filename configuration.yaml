@@ -1199,13 +1199,33 @@ automation:
           time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
           vstr: "{{ '%2.1f' % voltage if is_number(voltage) else ' 0  ' }}"
           soc        : "{{ states('sensor.battery_soc')                 }}"
+          capacity   : "{{ 1300                                         }}"
+          avail      : "{{ max(0, soc|float(0) - 10) / 100 * capacity   }}"  # 0 if (data) not available
+          hours_avail: "{{ (avail -    0) / 100 if avail <  100 else  1 +
+                           (avail -  100) /  60 if avail <  160 else  2 +
+                           (avail -  160) /  60 if avail <  220 else  3 +
+                           (avail -  220) /  60 if avail <  280 else  4 +
+                           (avail -  280) /  60 if avail <  340 else  5 +
+                           (avail -  340) /  60 if avail <  400 else  6 +
+                           (avail -  400) /  60 if avail <  460 else  7 +
+                           (avail -  460) /  60 if avail <  640 else  8 +
+                           (avail -  640) / 180 if avail <  820 else  9 +
+                           (avail -  820) / 180 if avail < 1000 else 10 +
+                           (avail - 1000) / 200 if avail < 1200 else 11 +
+                           (avail - 1200) / 200 if avail < 1400 else 12 +
+                           (avail - 1400) / 200 if avail < 1600 else 13 +
+                           (avail - 1600) / 200 if avail < 1800 else 15 +
+                           (avail - 1800) / 200 if avail < 2000 else 25 }}"  # likely hours of possible discharge until sunrise
+          next_rising: "{{ as_timestamp(states('sensor.sun_next_rising'))}}"
+          to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
+          should_dis : "{{ hours_avail >= to_sunrise                    }}"  # start discharging to reach low_batt by sunrise
           time_soc   : "{{ '%s,%s,%2d' % (time, vstr, soc|int(0))       }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
           chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
           chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power' }}"
-          dis_reason : "{{ 'sun down' if sun_down else 'full battery'                      }}"
+          dis_reason : "{{ 'sun down and should discharge now' if sun_down and should_dis else 'full battery' }}"
       - if: "{{ chg_enabled and not charge_only and (empty_batt or excess_and_not_still_nearly_full)
                 and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         then:
@@ -1226,7 +1246,7 @@ automation:
               entity_id: input_number.energy_discharge_last
             data:
               value: "{{ dischg_sum }}"
-      - if: "{{ dis_enabled and charge_only and (is_number(voltage) and not low_batt) and (sun_down or full_batt)
+      - if: "{{ dis_enabled and charge_only and (is_number(voltage) and not low_batt) and ((sun_down and should_dis) or full_batt)
                 and is_number(charge_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         # when battery full, switch to discharge-only mode as long as it is still nearly full, with hysteresis (see above)
         then:
@@ -1246,11 +1266,13 @@ automation:
               entity_id: input_number.energy_charge_last
             data:
               value: "{{ charge_sum }}"
-      - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
-                       states('input_boolean.discharge_logged') == 'on' }}"
+#     - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
+#                      states('input_boolean.discharge_logged') == 'on' }}"
+      - condition: "{{ is_number(voltage) }}"
       - service: system_log.write
         data:
           message: "{{ 'sun elevation: %.1f°, battery:' % ele|round(1) }} {{ voltage }} {{ 'V ' }}{{ soc }} %,
-                    {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }}"
+                    {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }};
+                    {{ 'discharge potential: %.1f hours' % hours_avail }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
