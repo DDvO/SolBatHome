@@ -1188,13 +1188,14 @@ automation:
           ele        : "{{ state_attr('sun.sun', 'elevation') }}"
           sun_down   : "{{ ele|float(99) < 1                  }}"  # surely no excess power possible from sunset to sunrise
           voltage    : "{{ states('sensor.battery_voltage'  ) }}"
-          empty_batt : "{{ voltage|float(99) < 23.1           }}"  # if voltage not available, assume no emergency
-          low_batt   : "{{ voltage|float(99) < 24.3           }}"  # if voltage not available, do not assume low battery
-          full_batt  : "{{ voltage|float(0) >= 27.1           }}"  # if voltage not available, do not assume full battery
+          empty_batt : "{{ voltage|float(99) < states('input_number.empty_battery')|float(0) }}"  # if voltage not available, assume no emergency
+          low_batt   : "{{ voltage|float(99) < states('input_number.low_battery'  )|float(0) }}"  # if voltage not available, do not assume low battery
+          full_batt  : "{{ voltage|float(0) >= states('input_number.full_battery' )|float(0) }}"  # if voltage not available, do not assume full battery
           cons       : "{{ states('sensor.power_consumption') }}"
           prod       : "{{ states('sensor.power_production' ) }}"
           excess     : "{{ prod|float(0) - cons|float(0)      }}"
-          excess_and_not_still_nearly_full: "{{ voltage|float(99) < 26.5 and is_number(cons) and is_number(prod) and excess > 0 }}"
+          excess_and_not_still_nearly_full: "{{ voltage|float(99) < states('input_number.near_battery')|float(0)
+                                                and is_number(cons) and is_number(prod) and excess > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
           time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
           vstr: "{{ '%2.1f' % voltage if is_number(voltage) else ' 0  ' }}"
