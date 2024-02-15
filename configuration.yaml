@@ -940,12 +940,11 @@ automation:
                         old_rate + delta if lin_delta|abs < 10 or not is_number(chg_pow) else
                         dir_rate if dir_rate > old_chg else dir_rate)) }}"
           rate_min: "{{ new_rate < min_rate }}"
-          dis_only: "{{ states('input_boolean.charge_only') == 'off' }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(minutes=2) }}"
           long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=5) }}"
           long_min: "{{ rate_min and long_on }}"
-          turn_off: "{{ disabled or full_batt or dis_only or disc_ing or long_min }}"
+          turn_off: "{{ disabled or full_batt or disc_ing or long_min }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
@@ -988,8 +987,7 @@ automation:
                     'off' if turn_off else 'min' if new_rate <= min_rate else
                     'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
                     ' disabled' if disabled else ('%s battery' % ('full' if is_number(voltage) else 'no')) if full_batt else
-                    ' discharge-only mode' if dis_only else ' still discharging' if disc_ing else
-                    ' at min for > 2 minutes' if long_min else '') }}"
+                    ' still discharging' if disc_ing else ' at min for > 2 minutes' if long_min else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
