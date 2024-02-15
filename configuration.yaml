@@ -548,6 +548,15 @@ input_boolean:
     # unique_id: discharge_logged_id
     icon: mdi:battery-arrow-down-outline
 
+  situation_enabled:
+    name: Situation enabled
+    # unique_id: situation_enabled_id
+    initial: "on"
+    icon: mdi:state-machine
+  situation_logged:
+    name: Situation logged
+    # unique_id: situation_logged_id
+    initial: "on"
   charge_only:
     name: Charge-only mode
     # unique_id: charge_only_id
@@ -1227,12 +1236,18 @@ automation:
           chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
           chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power' }}"
           dis_reason : "{{ 'sun down and should discharge now' if sun_down and should_dis else 'full battery' }}"
-      - if: "{{ chg_enabled and not charge_only and (empty_batt or excess_and_not_still_nearly_full)
+      - if: "{{ not charge_only and (empty_batt or excess_and_not_still_nearly_full)
                 and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         then:
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.charge_only
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.charge_enabled
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.discharge_enabled
           - service: notify.battery_data
             data_template:
               message: "{{ '%s,0    ,%1.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
@@ -1247,13 +1262,19 @@ automation:
               entity_id: input_number.energy_discharge_last
             data:
               value: "{{ dischg_sum }}"
-      - if: "{{ dis_enabled and charge_only and (is_number(voltage) and not low_batt) and ((sun_down and should_dis) or full_batt)
+      - if: "{{ charge_only and (is_number(voltage) and not low_batt) and (sun_down or full_batt)
                 and is_number(charge_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         # when battery full, switch to discharge-only mode as long as it is still nearly full, with hysteresis (see above)
         then:
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.charge_only
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.charge_enabled
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.discharge_enabled
           - service: notify.battery_data
             data_template:
               message: "{{ '%s,%1.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
@@ -1267,9 +1288,7 @@ automation:
               entity_id: input_number.energy_charge_last
             data:
               value: "{{ charge_sum }}"
-#     - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
-#                      states('input_boolean.discharge_logged') == 'on' }}"
-      - condition: "{{ is_number(voltage) }}"
+      - condition: "{{ states('input_boolean.sitation_logged') == 'on' and is_number(voltage) }}"
       - service: system_log.write
         data:
           message: "{{ 'sun elevation: %.1f°, battery:' % ele|round(1) }} {{ voltage }} {{ 'V ' }}{{ soc }} %,
