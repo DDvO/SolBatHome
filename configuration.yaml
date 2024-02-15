@@ -621,6 +621,12 @@ input_number:
     max: +999999
     mode: box
 
+  discharge_rate:
+    name: Inverter limit last set for discharging
+    initial: 0
+    min: 0
+    max: 100
+
 input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
@@ -944,7 +950,7 @@ automation:
 #        not_to:  # maybe no more needed
 #          - unavailable
       - platform: time_pattern
-        seconds: "/9"  # unfortunately, Hoymiles inverter react slowly and partly even erratically if changes requested more often
+        seconds: "/10"  # unfortunately, Hoymiles inverter react slowly and partly even erratically if changes requested more often
     action:
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
@@ -952,21 +958,31 @@ automation:
           low_batt: "{{ voltage|float(0) < states('input_number.low_batt_v')|float }}"  # if voltage not available, assume low battery, to be on safe side
           # after discharging to target voltage, voltage recovers, then battery is discharged further where voltage decreases quickly again, etc.
           cons:     "{{ states('sensor.power_consumption') }}"
-          charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
-          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
+          charging: "{{ states('sensor.power_charge'   )|float(1) >= threshold }}"
+          disc_pow: "{{ states('sensor.power_discharge')     }}"
+          disc_ing: "{{ disc_pow|float(1) >= threshold       }}"
           balance:  "{{ states('input_number.power_balance_avg') }}"
           target:   "{{ states('input_number.target_discharge') }}"
         # absolute values for discharge control would be more precise, but Hoymiles latency is way too high when using them
           min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
           min_eff:  "{{ 10 }}"  # min percent value for HM-300 where efficiency is considered acceptable (at least some 90%)
           min_pow:  "{{ 25 }}"  # output power corresponding to min_eff limit value, used to prevent on/off oscillation
-          max_rate: "{{ 76 }}"  # max percent value for HM-300 where actual output power is below 300 W
+          mid_rate: "{{ 20 }}"  # min percent value for HM-300 for which relative limit works rather linearly with factor 3
+          mid_pow:  "{{ 60 }}"  # output power corresponding to mid_rate
+          max_rate: "{{ 60 }}"  # max percent value for HM-300 for which relative limit works rather linearly with factor 3
+          max_pow:  "{{180 }}"  # output power corresponding to max_rate
         # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          gradient: "{{ ((balance - target) * 0.25) | int }}"  # higher factor leads to overshooting
-          old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
+          gradient: "{{ ((balance - target) * 0.30) | int }}"  # higher factor leads to overshooting
+          prev_disc: "{{states('input_number.discharge_rate') }}"  # more reliable than old_disc
+          old_disc: "{{ states('sensor.discharge_rate')|int(0) }}"
+          old_pow : "{{  disc_pow|float(0)             /             min_pow *  min_eff             if disc_pow|float(0) < min_pow else min_eff +
+                        (disc_pow|float(0) - min_pow)  / (mid_pow - min_pow) * (mid_rate - min_eff) if disc_pow|float(0) < mid_pow else
+                         disc_pow|float(0)             /  max_pow            *  max_rate            if disc_pow|float(0) < max_pow else
+                         max_rate }}" # rate derived from power, which after a rate change is more realistic than old_disc
+          old_rate: "{{ old_pow|round(0) if is_number(disc_pow) and ((old_disc - old_pow)|abs > 4 or old_disc == min_rate) else old_disc }}"
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
-          new_rate: "{{ max(min_rate, min(max_rate, old_rate + delta)) }}"
+          new_rate: "{{ max(min_rate, min(max_rate, (old_rate if disc_ing else 0) + delta)) }}"
           rate_min: "{{ new_rate <= min_eff }}"
           chg_only: "{{ states('input_boolean.charge_only') == 'on' }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
@@ -1001,12 +1017,17 @@ automation:
                       value: "{{ min_rate }}"
         else:  # further actions only if inverter should not be off
           # set new rate if needed before maybe turning on
-          - if: "{{ new_rate != old_rate }}"
+          - if: "{{ new_rate != prev_disc }}"
             then:
             # https://www.home-assistant.io/integrations/number/
               - service: number.set_value
                 target:
                   entity_id: number.hm_300_limit_nonpersistent_relative
+                data:
+                  value: "{{ new_rate }}"
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.discharge_rate
                 data:
                   value: "{{ new_rate }}"
               - service: light.turn_on  # value 0 would be reported by HA as 'Off'
