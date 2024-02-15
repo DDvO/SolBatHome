@@ -863,10 +863,8 @@ automation:
   - id: control_battery_charging
     initial_state: true
     trigger:
-      - platform: state
-        entity_id: sensor.power_balance
-        not_to:  # maybe no more needed
-          - unavailable
+      - platform: time_pattern
+        seconds: "/2"
     action:
       - variables:
           voltage   : "{{ states('sensor.battery_voltage') }}"
@@ -879,16 +877,18 @@ automation:
           threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
           balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
-          charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
+          chg_pow:  "{{ states('sensor.power_charge'           ) }}"
+          charging: "{{ chg_pow|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           target:   "{{ states('input_number.target_charge') }}"
           min_rate: "{{  69 }}"
           max_rate: "{{ 255 }}"
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          gradient: "{{ ((balance - target) * -0.25) | int }}"
-          old_rate: "{{ max(min_rate, states.light.charge_control.attributes.brightness|int(0)) }}"
+          gradient: "{{ ((target - balance) * (0.40 if balance > target else 0.22)) | int }}"  # higher factor leads to overshooting; increase is more sensitive
+          old_chg:  "{{ states.light.charge_control.attributes.brightness|int(0) }}"
+          old_rate: "{{ old_chg if charging else 0 }}"
           delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
-          new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate, (old_rate if charging else 0) + delta)) }}"
+          new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate, old_rate + delta)) }}"
           rate_min: "{{ new_rate < min_rate }}"
           dis_only: "{{ states('input_boolean.charge_only') == 'off' }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
@@ -913,7 +913,7 @@ automation:
               entity_id: input_text.charging_last_turned_off
               value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
         else:  # further actions only if not turning off, and set new rate if needed before maybe turning on
-          - if: "{{ new_rate != old_rate }}"
+          - if: "{{ new_rate != old_chg }}"
             then:
               # https://www.home-assistant.io/integrations/light/
               - service: light.turn_on  # value 0 would be reported by HA as 'Off'
