@@ -126,7 +126,8 @@ mqtt:
       state_topic: "pv1/status/switch:0"
       value_template: >-
         {% set val = value_json['apower'] %}
-        {{ (val if val >= 0.9 else -val if val <= -0.9 else 0) if is_number(val) else val }}
+        {{ (val|abs if val|abs >= 0.9 else 0) if is_number(val) else val }}
+      # https://community.home-assistant.io/t/absolute-value-math/255232
       # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
       unit_of_measurement: W
       device_class: power
@@ -140,7 +141,7 @@ mqtt:
       state_topic: "pm1/status/switch:0"
       value_template: >-
         {% set val = value_json['apower'] %}
-        {{ max([0, val - 2.5]) if is_number(val) else val }}
+        {{ max(0, val - 2.5) if is_number(val) else val }}
       unit_of_measurement: W
       device_class: power
       state_class: measurement
