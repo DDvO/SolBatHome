@@ -864,7 +864,8 @@ automation:
     action:
       - variables:
           voltage   : "{{ states('sensor.battery_voltage') }}"  # better not rely on charger switching off at maximium voltage
-          full_batt : "{{ voltage|float(99) >= 27.1 }}"         # if voltage not available, assume full battery, to be on safe side
+          full_batt : "{{ voltage|float(99) >= 27.1 and is_number(states('sensor.power_charge')) }}"
+          # if voltage not available (happens also on quick relaod) and charging sensor is available, assume full battery, to be on safe side
           empty_batt: "{{ voltage|float(99) <  23.1 }}"         # if voltage not available, assume no emergency
           # after charging to target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
