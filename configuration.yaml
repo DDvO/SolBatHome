@@ -1289,7 +1289,7 @@ automation:
               value: "{{ charge_sum }}"
       - if: "{{ states('input_boolean.charge_only') != 'on' }}"
         then:
-          if: "{{ should_dis }}"
+          if: "{{ (not sun_down and near_full) or should_dis }}"
           then:
             - service: input_boolean.turn_on
               target:
@@ -1304,6 +1304,7 @@ automation:
           message: "{{ 'sun elevation: %.1f°, battery: %s V %s %% %.1f hours' % (ele|round(1), vstr, socs, hours_avail) }},
                     {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }}{{
                        '' if states('input_boolean.charge_only') == 'on' else
-                       ', %s' % ('should discharge now' if should_dis else 'should wait for discharging') }}"
+                       ', %s' % ('sun not yet down and battery nearly full' if not sun_down and near_full else
+                                 'should discharge now' if should_dis else 'should wait for discharging') }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
