@@ -172,52 +172,24 @@ template:
           - unknown
           - unavailable
 
-  # https://community.home-assistant.io/t/noob-needs-help-to-convert-voltage-to-percentage/355021/12
-  # https://docs.google.com/spreadsheets/d/1SyzKUZ5_KxLB6megSLTXYv_1LlbcFqE4gxMgK8SrMvs/
   - sensor:
     - name: "Battery SoC"
       unique_id: battery_soc_id
       state_class: measurement
-      availability: "{{ is_number(states('sensor.battery_voltage')) }}"
+      # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
+      availability: "{{ is_number(states('sensor.energy_charge_sum'   )) and
+                        is_number(states('sensor.energy_discharge_sum')) and
+                        states('input_number.last_charge_balance')|float(0) != -999999 }}"
       state: >
-        {% set voltage = states('sensor.battery_voltage')|float %}
-        {% set curve = [
-            { "voltage": 20.0, "percentage":  0 },
-            { "voltage": 22.4, "percentage":  5 },
-            { "voltage": 24.0, "percentage":  9.5 },
-            { "voltage": 25.2, "percentage": 14 },
-            { "voltage": 25.6, "percentage": 20 },
-            { "voltage": 25.8, "percentage": 30 },
-            { "voltage": 26.0, "percentage": 40 },
-            { "voltage": 26.1, "percentage": 50 },
-            { "voltage": 26.2, "percentage": 60 },
-            { "voltage": 26.4, "percentage": 70 },
-            { "voltage": 26.6, "percentage": 80 },
-            { "voltage": 26.8, "percentage": 90 },
-            { "voltage": 27.0, "percentage": 99 },
-            { "voltage": 27.6, "percentage": 99.5 },
-            { "voltage": 29.2, "percentage":100 }
-          ]
-        %}
-        {% set minVoltage = curve[0].voltage %}
-        {% set maxVoltage = curve[curve|length-1].voltage %}
-        {% if voltage < minVoltage %}
-          0
-        {% elif voltage >= maxVoltage %}
-          100
-        {% else %}
-          {% for i in range(curve|length - 1)    %}
-            {% set v1 = curve[i    ].voltage     %}
-            {% set p1 = curve[i    ].percentage  %}
-            {% set v2 = curve[i + 1].voltage     %}
-            {% set p2 = curve[i + 1].percentage  %}
-            {% if v1 <= voltage and voltage < v2 %}
-              {% set percent = p1 + (p2 - p1) * ((voltage - v1) / (v2 - v1)) %}
-                {{ percent|round(0) if percent < 99 else percent|round(1) }}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
+        {% set charge_sum = states('sensor.energy_charge_sum'        ) %}
+        {% set dischg_sum = states('sensor.energy_discharge_sum'     ) %}
+        {% set last_bal   = states('input_number.last_charge_balance') %}
+        {% set capacity   = 1300 %}
+        {% set efficiency = 0.75 %}
+        {{ ((last_bal|float + ((efficiency * charge_sum|float - dischg_sum|float) * 1000)) / capacity * 100)|round(1) }}
       device_class: battery
+        # 'efficiency' is overall storage efficiency
+        # TODO update capacity and efficiency - as of 2024-02-15, discharge_sum 10.564 kWh / charge_sum 16.277 kWh
       unit_of_measurement: "%"
     # icon: mdi:battery-medium  # using automatic icon instead
 
@@ -562,6 +534,13 @@ utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
     source: sensor.power_production_sum
     cron: "* * * * *"
 
+input_number:
+  last_charge_balance: # when measuring stable battery voltage, in Wh
+    name: Last Balance Charge vs. Discharge
+    initial: -999999  # workaround for not being able to use 'unknown'
+    min: -999999
+    max: +999999
+    mode: box
 
 notify: # https://www.home-assistant.io/integrations/file/
 
@@ -737,3 +716,110 @@ automation:
         data_template:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
+
+  - id: set_last_charge_balance
+    initial_state: true
+    trigger:
+      # must initialize after HA restart; make sure to do when battery voltage has become available
+      # https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger
+      - platform: numeric_state
+        entity_id:  sensor.power_balance  # anything that changes often
+        value_template: "{{ states('sensor.battery_voltage')|float(0) }}"
+        above: 0  # gets triggered also on quick reload
+        # inferior time-based alternative, requring uptime integration: https://www.home-assistant.io/integrations/uptime/
+        ## https://community.home-assistant.io/t/uptime-in-days-hours-and-minutes/180916/40
+        #value_template: "{{ as_timestamp(now()) - as_timestamp(states('sensor.uptime')) }}"
+        #above: 1 # at least one second after HA restart
+      # update when battery has not been charged or discharged for a while
+      - platform: numeric_state
+        entity_id:
+           - sensor.power_charge
+           - sensor.power_discharge
+        value_template: "{{ states('sensor.power_charge'   )|float(1) +
+                            states('sensor.power_discharge')|float(1) }}"
+        below: 1
+        for: "00:30:00"  # battery takes some 30 seconds to recover stable voltage after being (dis)charged
+    action:
+      - variables:
+          chg_pow : "{{ states('sensor.power_charge'             ) }}"
+          dis_pow : "{{ states('sensor.power_discharge'          ) }}"
+          chg_sum : "{{ states('sensor.power_charge_sum'         ) }}"
+          dis_sum : "{{ states('sensor.power_discharge_sum'      ) }}"
+      - condition : "{{ chg_pow|float(1) == 0 and dis_pow|float(1) == 0 and
+                        is_number(chg_sum) and is_number(dis_sum ) }}"
+      - variables:
+          old_sum : "{{ states('input_number.last_dis_charge_sum') }}"
+          new_sum : "{{ (chg_sum + dis_sum) / 1000                 }}"
+      - service: input_number.set_value
+        data:
+          entity_id: input_number.last_dis_charge_sum
+          value: "{{ new_sum }}"
+      - condition: "{{ new_sum|round(5) == old_sum|round(5) or old_sum == 0 }}"  # adapting also on HA restart
+      # end of workaround, doing the (dis)charge activity check ourselves
+
+      - variables:
+          charge_sum: "{{ states('sensor.energy_charge_sum'   ) }}"
+          dischg_sum: "{{ states('sensor.energy_discharge_sum') }}"
+          voltage   : "{{ states('sensor.battery_voltage'     ) }}"
+      - condition: "{{ is_number(charge_sum) and is_number(dischg_sum) and is_number(voltage) }}"
+      - variables:
+          old_bal:  "{{ states('input_number.last_charge_balance') }}"
+          old_soc:  "{{ states('sensor.battery_soc'              ) }}"
+          # https://community.home-assistant.io/t/noob-needs-help-to-convert-voltage-to-percentage/355021/12
+          # https://docs.google.com/spreadsheets/d/1SyzKUZ5_KxLB6megSLTXYv_1LlbcFqE4gxMgK8SrMvs/
+          # below voltage curve values assume 24 V LFP battery but are adapted via the nominalVoltage constant
+          soc: >
+            {% set nominalVoltage =                        24 %}
+            {% set volt = voltage|float / nominalVoltage * 24 %}
+            {% set curve = [
+                { "volt": 20.0, "percent":  0 },
+                { "volt": 22.4, "percent":  5 },
+                { "volt": 24.0, "percent":  9.5 },
+                { "volt": 25.2, "percent": 14 },
+                { "volt": 25.6, "percent": 20 },
+                { "volt": 25.8, "percent": 30 },
+                { "volt": 26.0, "percent": 40 },
+                { "volt": 26.1, "percent": 50 },
+                { "volt": 26.2, "percent": 60 },
+                { "volt": 26.4, "percent": 70 },
+                { "volt": 26.6, "percent": 80 },
+                { "volt": 26.8, "percent": 90 },
+                { "volt": 27.0, "percent": 99 },
+                { "volt": 27.6, "percent": 99.5 },
+                { "volt": 29.2, "percent":100 }
+              ]
+            %}
+            {% set minVolt = curve[0               ].volt %}
+            {% set maxVolt = curve[curve|length - 1].volt %}
+            {% if volt < minVolt %}
+              0
+            {% elif volt >= maxVolt %}
+              100
+            {% else %}
+              {% for i in range(curve|length - 1) %}
+                {% set v1 = curve[i    ].volt     %}
+                {% set p1 = curve[i    ].percent  %}
+                {% set v2 = curve[i + 1].volt     %}
+                {% set p2 = curve[i + 1].percent  %}
+                {% if v1 <= volt and volt < v2    %}
+                  {% set percent = p1 + (p2 - p1) * ((volt - v1) / (v2 - v1)) %}
+                    {{ percent|round(0) if percent < 99 else percent|round(1) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          capacity  : "{{ 1300 }}"
+          efficiency: "{{ 0.75 }}"
+          offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
+          new_bal   : "{{ soc / 100 * capacity - offset }}"
+      - condition: "{{ is_number(charge_sum) and is_number(dischg_sum) }}"
+      - service: input_number.set_value
+        data:
+          entity_id: input_number.last_charge_balance
+          value: "{{ new_bal }}"
+      - delay: "00:00:01"  # give sensor.battery_soc some time to update itself
+      - service: system_log.write
+        data:
+          message: "{{ 'battery SoC adapted from ' }}{{ old_soc }}{{ ' to ' }}{{ states('sensor.battery_soc') }}{{ ' %; voltage: ' }}{{ voltage }}{{
+                    ' V; charge_balance updated from ' }}{{ old_bal }}{{ ' to ' }}{{ new_bal }}{{ ' Wh ' }}"
+          logger: battery
+          level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
