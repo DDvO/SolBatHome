@@ -317,6 +317,8 @@ sensor:
     # no need to use float(0) here - see https://github.com/home-assistant/home-assistant.io/issues/30992
     platform: integration
     unit_prefix: k
+    # The Home battery storage setting at https://homeassistant.local:8123/config/energy/dashboard
+    # gives wrong warning: The following entities do not have the expected device class: sensor.energy_charge_sum
     round: 3
     method: left
 
