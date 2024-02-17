@@ -1192,15 +1192,29 @@ automation:
           charge_only: "{{ states('input_boolean.charge_only'   ) == 'on' }}"
           charge_sum : "{{ states('sensor.energy_charge_sum'    )         }}"
           dischg_sum : "{{ states('sensor.energy_discharge_sum' )         }}"
-          # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
-          ele        : "{{ state_attr('sun.sun', 'elevation') }}"
-          sun_down   : "{{ ele|float(99) < 1                  }}"  # surely no excess power possible from sunset to sunrise
+
+          next_setting: "{{ as_timestamp(states('sensor.sun_next_setting'))       }}"
+          to_sunset   : "{{ (next_setting - as_timestamp(now())) / 3600           }}"  # number of hours until next sunset
+          ele         : "{{ state_attr('sun.sun', 'elevation')                    }}"
+          prod_to_come: "{{ states('sensor.energy_production_today_remaining')    }}"  # based on forecast
+          prod_all_day: "{{ states('sensor.energy_production_today'          )    }}"  # based on forecast
+          prod_fc     : "{{ prod_all_day - prod_to_come                           }}"  # production until now forecast
+          prod_actual : "{{ states('sensor.energy_production_daily')              }}"  # production until now actually
+          calibration : "{{ 1 if prod_fc == 0 else prod_actual|float(0) / prod_fc }}"
+          avg_expected: "{{ 0 if to_sunset == 0 else
+                            1000 * prod_to_come / to_sunset * calibration         }}"
+          min_load   : "{{ 37 }}"
+          avg_excess : "{{ not is_number(prod_actual) or avg_expected > min_load  }}"  # on average, excess expected
+          may_excess : "{{ ele|float(99) > 1 and (true or avg_excess)             }}"  # excess is possible today; surely not from sunset to sunrise
+
           voltage    : "{{ states('sensor.battery_voltage'  ) }}"
           soc        : "{{ states('sensor.battery_soc'      ) }}"
           empty_batt : "{{ voltage|float(100) < states('input_number.empty_batt_v')|float(0) }}"  # if voltage not available, assume no emergency
           low_batt   : "{{ soc|float(100) < states('input_number.low_batt_soc' )|float(0) }}"  # if SoC not available, do not assume low battery
           near_full  : "{{ soc|float(0)  >= states('input_number.near_batt_soc')|float(0) }}"  # if SoC not available, do not assume nearly full
           full_batt  : "{{ soc|float(0)  >= states('input_number.full_batt_soc')|float(0) }}"  # if SoC not available, do not assume full battery
+          # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
+
           cons       : "{{ states('sensor.power_consumption') }}"
           prod       : "{{ states('sensor.power_production' ) }}"
           excess     : "{{ is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
@@ -1234,7 +1248,7 @@ automation:
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
           chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
           chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power and not nearly full' }}"
-          dis_reason : "{{ 'sun down' if sun_down else 'full battery' }}"
+          dis_reason : "{{ 'full battery' if may_excess else 'no excess expected' }}"
       - if: "{{ not charge_only and (empty_batt or (excess and not near_full))
                 and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         then:
@@ -1261,7 +1275,7 @@ automation:
               entity_id: input_number.energy_discharge_last
             data:
               value: "{{ dischg_sum }}"
-      - if: "{{ charge_only and (is_number(soc) and not low_batt) and (sun_down or full_batt)
+      - if: "{{ charge_only and (is_number(soc) and not low_batt) and (not may_excess or full_batt)
                 and is_number(charge_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         # when battery full, switch to discharge-only mode as long as it is still nearly full, with hysteresis (see above)
         then:
@@ -1289,7 +1303,7 @@ automation:
               value: "{{ charge_sum }}"
       - if: "{{ states('input_boolean.charge_only') != 'on' }}"
         then:
-          if: "{{ (not sun_down and near_full) or should_dis }}"
+          if: "{{ (may_excess and near_full) or should_dis }}"
           then:
             - service: input_boolean.turn_on
               target:
@@ -1301,10 +1315,11 @@ automation:
       - condition: "{{ states('input_boolean.situation_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'sun elevation: %.1f°, battery: %s V %s %% %.1f hours' % (ele|round(1), vstr, socs, hours_avail) }},
+          message: "{{ 'sun elevation: %.1f°, avg power expected: %d W, battery: %s V %s %% %.1f hours' %
+                        (ele|round(1), avg_expected, vstr, socs, hours_avail) }},
                     {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }}{{
                        '' if states('input_boolean.charge_only') == 'on' else
-                       ', %s' % ('sun not yet down and battery nearly full' if not sun_down and near_full else
+                       ', %s' % ('excess possible and battery nearly full' if may_excess and near_full else
                                  'should discharge now' if should_dis else 'should wait for discharging') }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
