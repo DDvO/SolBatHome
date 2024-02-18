@@ -115,17 +115,19 @@ template:
           - unknown
           - unavailable
 
-# using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
+# prefer using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
+# report 'unknown' or 'unavailable' (value from the Shelly integration) if both sources do not yield a number
 mqtt:
   sensor:
-      # reports the absolute value, or 'unknown' if sensor is not available
-      # reports 0 if abs(value) < 0.9 because inverter drags ~0.7 W on standby
+      # reports the absolute value, or 0 if abs(value) < 0.9 because inverter drags ~0.7 W on standby
     - name: power_production_unstable
       unique_id: power_production_unstable
       # friendly_name: "Power production - stateless"
       state_topic: "pv1/status/switch:0"
       value_template: >-
-        {% set val = value_json['apower'] %}
+        {% set val1 = value_json['apower'] %}
+        {% set val2 = states('sensor.pv1_power') %}
+        {% set val = val1 if is_number(val1) else val2 %}
         {{ (val|abs if val|abs >= 0.9 else 0) if is_number(val) else val }}
       # https://community.home-assistant.io/t/absolute-value-math/255232
       # need to use is_number() - see https://github.com/home-assistant/home-assistant.io/issues/30992
@@ -133,26 +135,30 @@ mqtt:
       device_class: power
       state_class: measurement
 
-      # reports 'unknown' if sensor is not available
-      # reports max(0, value - 2.5) because HLG-600H drags ~2.4 W on standby
-    - name: power_charge_unstable  # beware: after quick reload, it can take 30+ seconds to recover from 'unknown' 
+      # reports max(0, value)
+      # HLG-600H drags 3.4 W on standby
+    - name: power_charge_unstable  # beware: after quick reload, it can take 30+ seconds to recover from 'unknown'
       unique_id: power_charge_unstable
       # friendly_name: "Charge power - stateless"
       state_topic: "pm1/status/switch:0"
       value_template: >-
-        {% set val = value_json['apower'] %}
-        {{ max(0, val - 2.5) if is_number(val) else val }}
+        {% set val1 = value_json['apower'] %}
+        {% set val2 = states('sensor.pm1_power') %}
+        {% set val = val1 if is_number(val1) else val2 %}
+        {{ max(0, val) if is_number(val) else val }}
       unit_of_measurement: W
       device_class: power
       state_class: measurement
 
-      # reports 'unknown' if sensor is not available, and 0 if value < 0.5 to suppress flicker
+      # reports 0 if value < 0.5 to suppress flicker on standby
     - name: power_discharge_unstable
       unique_id: power_discharge_unstable
       # friendly_name: "Discharge power - stateless"
       state_topic: "pm2/status/switch:0"
       value_template: >-
-        {% set val = value_json['apower'] %}
+        {% set val1 = value_json['apower'] %}
+        {% set val2 = states('sensor.pm2_power') %}
+        {% set val = val1 if is_number(val1) else val2 %}
         {{ (val if val >= 0.5 else 0) if is_number(val) else val }}
       unit_of_measurement: W
       device_class: power
