@@ -864,7 +864,7 @@ automation:
     initial_state: true
     trigger:
       - platform: time_pattern
-        seconds: "/2"
+        seconds: "/7" # should not go below 7 seconds due to delays in charge control and feedback
     action:
       - variables:
           voltage   : "{{ states('sensor.battery_voltage') }}"
@@ -881,13 +881,15 @@ automation:
           charging: "{{ chg_pow|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           target:   "{{ states('input_number.target_charge') }}"
-          min_rate: "{{  69 }}"
-          max_rate: "{{ 255 }}"
+          min_rate: "{{  59 }}"  # min usable value, with efficiency of about 86%
+          max_rate: "{{ 255 }}"  # with rate 217, efficiency is about 95%
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          gradient: "{{ ((target - balance) * (0.40 if balance > target else 0.22)) | int }}"  # higher factor leads to overshooting; increase is more sensitive
+          lin_delta: "{{ ((target - balance) * (0.27 if target < balance else 0.27)) | int }}"  # higher factor leads to overshooting; decrease is more sensitive
           old_chg:  "{{ states.light.charge_control.attributes.brightness|int(0) }}"
-          old_rate: "{{ old_chg if charging else 0 }}"
-          delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
+          old_pow : "{{ chg_pow|float(0) / 400 * max_rate + 65 }}"  # 793 * max_rate + 115 for high rates
+          old_rate: "{{ old_pow if (is_number(chg_pow) and (old_chg - old_pow)|abs > 10 or old_chg == min_rate) and false else
+                        old_chg if charging else min_rate }}"   # TODO adapt use of min_rate to make behavior linear
+          delta:    "{{ max(-max_delta, min(max_delta, lin_delta)) }}"
           new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate, old_rate + delta)) }}"
           rate_min: "{{ new_rate < min_rate }}"
           dis_only: "{{ states('input_boolean.charge_only') == 'off' }}"
@@ -946,6 +948,7 @@ automation:
   # control battery discharging with the goal that exactly any missing power is compensated
   - id: control_battery_discharging
     initial_state: true
+#   condition: "{{ is_number(number.hm_300_limit_nonpersistent_relative) }}"  # does not work: UndefinedError: 'number' is undefined
     trigger:
 #      - platform: state
 #        entity_id: sensor.power_balance
@@ -975,7 +978,7 @@ automation:
           max_pow:  "{{180 }}"  # output power corresponding to max_rate
         # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          gradient: "{{ ((balance - target) * 0.30) | int }}"  # higher factor leads to overshooting
+          lin_delta: "{{ ((balance - target) * 0.30) | int }}"  # higher factor leads to overshooting
           prev_disc: "{{states('input_number.discharge_rate') }}"  # more reliable than old_disc
           old_disc: "{{ states('sensor.discharge_rate')|int(0) }}"
           old_pow : "{{  disc_pow|float(0)             /             min_pow *  min_eff             if disc_pow|float(0) < min_pow else min_eff +
@@ -983,7 +986,7 @@ automation:
                          disc_pow|float(0)             /  max_pow            *  max_rate            if disc_pow|float(0) < max_pow else
                          max_rate }}" # rate derived from power, which after a rate change is more realistic than old_disc
           old_rate: "{{ old_pow|round(0) if is_number(disc_pow) and ((old_disc - old_pow)|abs > 4 or old_disc == min_rate) else old_disc }}"
-          delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
+          delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, lin_delta)) }}"
           new_rate: "{{ max(min_rate, min(max_rate, (old_rate if disc_ing else 0) + delta)) }}"
           rate_min: "{{ new_rate <= min_eff }}"
           chg_only: "{{ states('input_boolean.charge_only') == 'on' }}"
