@@ -864,7 +864,7 @@ automation:
     initial_state: true
     trigger:
       - platform: time_pattern
-        seconds: "/7" # should not go below 7 seconds due to delays in charge control and feedback
+        seconds: "/4" # should not go below 2 seconds due to delays in charge control and feedback (mostly power_balance), which would lead to overshooting
     action:
       - variables:
           voltage   : "{{ states('sensor.battery_voltage') }}"
@@ -876,21 +876,69 @@ automation:
           # after charging to target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
-          balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
-          chg_pow:  "{{ states('sensor.power_charge'           ) }}"
+          balance:  "{{ states('sensor.power_balance')|float(0) }}" # TODO use average over the last seconds
+          chg_pow:  "{{ states('sensor.power_charge') }}"
           charging: "{{ chg_pow|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           target:   "{{ states('input_number.target_charge') }}"
-          min_rate: "{{  59 }}"  # min usable value, with efficiency of about 86%
+          tgtPower: "{{ chg_pow|int(0) + target - balance + 0 }}"
+          min_rate: "{{  61 }}"  # min usable value, with efficiency of about 86%
+          min_pow:  "{{  33 }}"  # power at min_rate
+          min_grad: "{{ 1.2 }}"  # power at min_rate
           max_rate: "{{ 255 }}"  # with rate 217, efficiency is about 95%
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          lin_delta: "{{ ((target - balance) * (0.27 if target < balance else 0.27)) | int }}"  # higher factor leads to overshooting; decrease is more sensitive
+          lin_delta: "{{ ((target - balance) * (min_grad if tgtPower < 90 else 0.8 if tgtPower < 150
+                         else 0.6 if tgtPower < 300 else 0.4)) | int }}"  # used only for adaptation; higher factors may lead to overshooting
           old_chg:  "{{ states.light.charge_control.attributes.brightness|int(0) }}"
-          old_pow : "{{ chg_pow|float(0) / 400 * max_rate + 65 }}"  # 793 * max_rate + 115 for high rates
-          old_rate: "{{ old_pow if (is_number(chg_pow) and (old_chg - old_pow)|abs > 10 or old_chg == min_rate) and false else
-                        old_chg if charging else min_rate }}"   # TODO adapt use of min_rate to make behavior linear
+          old_rate: "{{ old_chg if charging else min_rate - min_grad * min_pow }}"
           delta:    "{{ max(-max_delta, min(max_delta, lin_delta)) }}"
-          new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate, old_rate + delta)) }}"
+
+          # direct approach, based on last charge power
+          dir_rate: >  # map tgtPower directly to rate
+            {% set map = [
+                { "power": min_pow, "rate":  min_rate },
+                { "power":  35, "rate":  66 },
+                { "power":  41, "rate":  77 },
+                { "power":  49, "rate":  92 },
+                { "power":  56, "rate":  97 },
+                { "power":  65, "rate": 107 },
+                { "power":  75, "rate": 117 },
+                { "power":  81, "rate": 122 },
+                { "power":  91, "rate": 128 },
+                { "power": 110, "rate": 140 },
+                { "power": 134, "rate": 153 },
+                { "power": 163, "rate": 166 },
+                { "power": 194, "rate": 179 },
+                { "power": 232, "rate": 193 },
+                { "power": 275, "rate": 204 },
+                { "power": 309, "rate": 217 },
+                { "power": 359, "rate": 230 },
+                { "power": 412, "rate": 242 },
+                { "power": 451, "rate": max_rate }
+              ]
+            %}
+            {% set minPower = map[0].power %}
+            {% set maxPower = map[map|length-1].power %}
+            {% if tgtPower < minPower %}
+              {{ 0 }}
+            {% elif tgtPower >= maxPower %}
+              {{ max_rate }}
+            {% else %}
+              {% for i in range(map|length - 1)    %}
+                {% set v1 = map[i    ].power       %}
+                {% set r1 = map[i    ].rate        %}
+                {% set v2 = map[i + 1].power       %}
+                {% set r2 = map[i + 1].rate        %}
+                {% if v1 <= tgtPower and tgtPower < v2 %}
+                  {% set rate = r1 + (r2 - r1) * ((tgtPower - v1) / (v2 - v1)) %}
+                    {{ rate|round(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+          new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate,
+                        old_rate + delta if lin_delta|abs < 10 or not is_number(chg_pow) else
+                        dir_rate if dir_rate > old_chg else dir_rate)) }}"
           rate_min: "{{ new_rate < min_rate }}"
           dis_only: "{{ states('input_boolean.charge_only') == 'off' }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
