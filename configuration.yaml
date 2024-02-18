@@ -557,10 +557,6 @@ input_boolean:
     name: Situation logged
     # unique_id: situation_logged_id
     initial: "on"
-  charge_only:
-    name: Charge-only mode
-    # unique_id: charge_only_id
-    icon: mdi:battery-charging-40
 
 input_number:
   target_charge:
@@ -1189,7 +1185,6 @@ automation:
     action:
       - condition: "{{ states('input_boolean.situation_enabled') == 'on' }}"
       - variables:
-          charge_only: "{{ states('input_boolean.charge_only'   ) == 'on' }}"
           charge_sum : "{{ states('sensor.energy_charge_sum'    )         }}"
           dischg_sum : "{{ states('sensor.energy_discharge_sum' )         }}"
 
@@ -1210,7 +1205,7 @@ automation:
           voltage    : "{{ states('sensor.battery_voltage'  ) }}"
           soc        : "{{ states('sensor.battery_soc'      ) }}"
           empty_batt : "{{ voltage|float(100) < states('input_number.empty_batt_v')|float(0) }}"  # if voltage not available, assume no emergency
-          low_batt   : "{{ soc|float(100) < states('input_number.low_batt_soc' )|float(0) }}"  # if SoC not available, do not assume low battery
+          low_batt   : "{{ soc|float(0)  <  states('input_number.low_batt_soc' )|int      }}"  # if SoC not available, assume low battery
           near_full  : "{{ soc|float(0)  >= states('input_number.near_batt_soc')|float(0) }}"  # if SoC not available, do not assume nearly full
           full_batt  : "{{ soc|float(0)  >= states('input_number.full_batt_soc')|float(0) }}"  # if SoC not available, do not assume full battery
           # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
@@ -1220,8 +1215,8 @@ automation:
           excess     : "{{ is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
           time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
-          vstr: "{{ '%2.1f' % voltage if is_number(voltage) else ' 0  ' }}"
-          socs: "{{ '%2.1f' % soc     if is_number(soc    ) else ' 0  ' }}"
+          vstr: "{{ '%2.1f' % voltage if is_number(voltage) and voltage > 0 else ' 0  ' }}"
+          socs: "{{ '%2.1f' % soc     if is_number(soc    ) and soc     > 0 else ' 0  ' }}"
           capacity   : "{{ states('input_number.battery_capacity')|int  }}"
           avail      : "{{ max(0, soc|float(100) - 10) / 100 * capacity }}"  # if SoC not avaialable, assume full
           hours_avail: "{{ (avail -    0) / 100 if avail <  100 else  1 +
@@ -1247,20 +1242,39 @@ automation:
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
           chg_diff   : "{{ charge_sum|float(0) - chg_last|float(0) }}"
-          chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'excess PV power and not nearly full' }}"
+          chg_reason : "{{ 'emergency: empty battery' if empty_batt else 'low battery' if low_batt else 'excess PV power and not nearly full' }}"
           dis_reason : "{{ 'full battery' if may_excess else 'no excess expected' }}"
-      - if: "{{ not charge_only and (empty_batt or (excess and not near_full))
-                and is_number(dischg_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
+          situation  : "{{ states('input_select.situation') }}"
+
+      # 'any' is the initial situation after HA restart; 'any' remains while may_excess (during day) until low battery, excess, or full battery
+      - if: "{{ situation != 'charge' and (empty_batt or low_batt or (excess and not near_full)) }}"
+        # note that is_number(dischg_sum), which prevents wrong situation change or diff value after restarting HA
         then:
-          - service: input_boolean.turn_on
+          - service: input_select.select_option
             target:
-              entity_id: input_boolean.charge_only
+              entity_id: input_select.situation
+            data:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.discharge_enabled
+        # would be nice to prevent inverter from needlessly draining the battery on standby, but would need a switch also on battery side
+        # - service: switch.turn_off
+        #   target:
+        #     entity_id: switch.pm2
+        # - service: light.turn_off
+        #   target:
+        #     entity_id: light.discharge_control
+
+        # - if: "{{ disc_ing }}"
+        #   then:
+        #     - delay: "00:01:00"  # give battery some rest, such that voltage settles
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.charge_enabled
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.discharge_enabled
+          - condition: "{{ situation != 'any' }}"
           - service: notify.battery_data
             data_template:
               message: "{{ '%s,0    ,%1.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
@@ -1275,19 +1289,22 @@ automation:
               entity_id: input_number.energy_discharge_last
             data:
               value: "{{ dischg_sum }}"
-      - if: "{{ charge_only and (is_number(soc) and not low_batt) and (not may_excess or full_batt)
+      - if: "{{ situation != 'discharge' and (is_number(soc) and not low_batt) and (not may_excess or full_batt)
                 and is_number(charge_sum) }}" # the latter prevents wrong situation change or diff value after restarting HA
         # when battery full, switch to discharge-only mode as long as it is still nearly full, with hysteresis (see above)
         then:
-          - service: input_boolean.turn_off
+          - service: input_select.select_option
             target:
-              entity_id: input_boolean.charge_only
+              entity_id: input_select.situation
+            data:
+              option: discharge
           - service: input_boolean.turn_on
             target:
               entity_id: input_boolean.discharge_enabled
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.charge_enabled
+          - condition: "{{ situation != 'any' }}"
           - service: notify.battery_data
             data_template:
               message: "{{ '%s,%1.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
@@ -1301,7 +1318,7 @@ automation:
               entity_id: input_number.energy_charge_last
             data:
               value: "{{ charge_sum }}"
-      - if: "{{ states('input_boolean.charge_only') != 'on' }}"
+      - if: "{{ states('input_select.situation') != 'charge' and is_number(soc) }}"
         then:
           if: "{{ (may_excess and near_full) or should_dis }}"
           then:
@@ -1312,14 +1329,32 @@ automation:
             - service: input_boolean.turn_off
               target:
                 entity_id: input_boolean.discharge_enabled
+          # would be nice to prevent inverter from needlessly draining the battery on standby, but would need a switch also on battery side
+          # - service: switch.turn_off
+          #   target:
+          #     entity_id: switch.pm2
+          # - service: light.turn_off
+          #   target:
+          #     entity_id: light.discharge_control
       - condition: "{{ states('input_boolean.situation_logged') == 'on' }}"
       - service: system_log.write
         data:
           message: "{{ 'sun elevation: %.1f°, avg power expected: %d W, battery: %s V %s %% %.1f hours' %
                         (ele|round(1), avg_expected, vstr, socs, hours_avail) }},
-                    {{ 'mode: %s only' % ('charge' if charge_only else 'discharge') }}{{
-                       '' if states('input_boolean.charge_only') == 'on' else
+                    {{ 'mode: ' }}{{ states('input_select.situation') }}{{
+                       '' if states('input_select.situation') != 'discharge' else
                        ', %s' % ('excess possible and battery nearly full' if may_excess and near_full else
                                  'should discharge now' if should_dis else 'should wait for discharging') }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
+
+input_select:
+  situation:
+    # unique_id: situation_id
+    name: major mode
+    options:
+      - charge
+      - any
+      - discharge
+    initial: any
+    icon: mdi:battery-charging-40
