@@ -173,7 +173,7 @@ template:
           - unavailable
 
   - sensor:
-    - name: "Battery SoC"
+    - name: "Battery SoC"  # using the Coulomb Counting method
       unique_id: battery_soc_id
       state_class: measurement
       # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
@@ -181,15 +181,13 @@ template:
                         is_number(states('sensor.energy_discharge_sum')) and
                         states('input_number.last_charge_balance')|float(0) != -999999 }}"
       state: >
-        {% set charge_sum = states('sensor.energy_charge_sum'        ) %}
-        {% set dischg_sum = states('sensor.energy_discharge_sum'     ) %}
-        {% set last_bal   = states('input_number.last_charge_balance') %}
-        {% set capacity   = 1300 %}
-        {% set efficiency = 0.75 %}
-        {{ ((last_bal|float + ((efficiency * charge_sum|float - dischg_sum|float) * 1000)) / capacity * 100)|round(1) }}
+        {% set charge_sum = states('sensor.energy_charge_sum'   )|float %}
+        {% set dischg_sum = states('sensor.energy_discharge_sum')|float %}
+        {% set efficiency = states('input_number.storage_efficiency')|float %}
+        {% set last_bal   = states('input_number.last_charge_balance')  %}
+        {% set capacity   = states('input_number.battery_capacity')|int %}
+        {{ ((last_bal|float + ((efficiency * charge_sum - dischg_sum) * 1000)) / capacity * 100)|round(1) }}
       device_class: battery
-        # 'efficiency' is overall storage efficiency
-        # TODO update capacity and efficiency - as of 2024-02-15, discharge_sum 10.564 kWh / charge_sum 16.277 kWh
       unit_of_measurement: "%"
     # icon: mdi:battery-medium  # using automatic icon instead
 
@@ -539,13 +537,31 @@ utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
     cron: "* * * * *"
 
 input_number:
+# (ab-)using input_number for defining global constants
+# https://community.home-assistant.io/t/create-a-constant/15686/21
+  storage_efficiency:  # overall storage efficiency: charging, storing, and discharging = AC output / AC input
+    initial: 0.80  # TODO update according to more precise measurement
+    min:  0.60
+    max:  1.00
+    step: 0.01
+    icon: mdi:battery-sync-outline
+  battery_capacity:  # nominal capacity in Wh
+    initial: 1320  # TODO update according to more precise measurement
+    min: 1000
+    max: 2600
+    step: 10
+    icon: mdi:battery-sync-outline
+
+# (ab-)using input_{number,text} for remembering value in automation
+# https://community.home-assistant.io/t/why-the-heck-dont-we-have-global-variables/219671/86
+# https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
+# alternative would be: https://github.com/enkama/hass-variables
   last_charge_balance: # when measuring stable battery voltage, in Wh
     name: Last Balance Charge vs. Discharge
     initial: -999999  # workaround for not being able to use 'unknown'
     min: -999999
     max: +999999
     mode: box
-
 
   last_dis_charge_sum: # when updating battery SoC, in kWs
     name: Last Charge + Discharge sum
@@ -825,8 +841,10 @@ automation:
                 {% endif %}
               {% endfor %}
             {% endif %}
-          capacity  : "{{ 1300 }}"
-          efficiency: "{{ 0.75 }}"
+      # prepare data for the Coulomb Counting method
+      # https://www.powertechsystems.eu/home/tech-corner/lithium-ion-state-of-charge-soc-measurement/
+          capacity  : "{{ states('input_number.battery_capacity'  )|int }}"
+          efficiency: "{{ states('input_number.storage_efficiency')|float }}"
           offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
           new_bal   : "{{ soc / 100 * capacity - offset }}"
       - condition: "{{ new_bal|round(3) != old_bal|round(3) }}"
