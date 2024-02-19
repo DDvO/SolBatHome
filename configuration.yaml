@@ -1195,7 +1195,7 @@ automation:
           prod_all_day: "{{ states('sensor.energy_production_today'          )    }}"  # based on forecast
           prod_fc     : "{{ prod_all_day - prod_to_come                           }}"  # production until now forecast
           prod_actual : "{{ states('sensor.energy_production_daily')              }}"  # production until now actually
-          calibration : "{{ 1 if prod_fc == 0 else prod_actual|float(0) / prod_fc }}"
+          calibration : "{{ 0.2 if prod_fc == 0 else prod_actual|float(0) / prod_fc }}"
           avg_expected: "{{ 0 if to_sunset == 0 else
                             1000 * prod_to_come / to_sunset * calibration         }}"
           min_load   : "{{ 37 }}"
@@ -1247,10 +1247,9 @@ automation:
           to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
           should_dis : "{{ hours_avail >= to_sunrise                    }}"  # should discharge to reach low_batt by sunrise
 
-          time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
-          vstr: "{{ '%2.1f' % voltage if is_number(voltage) and voltage > 0 else ' 0  ' }}"
-          socs: "{{ '%2.1f' % soc     if is_number(soc    ) and soc     > 0 else ' 0  ' }}"
-          time_soc   : "{{ '%s,%s,%s' % (time, vstr, socs)              }}"
+          time_soc   : "{{ '%s,%s,%s,' % (now().strftime('%Y-%m-%d %H:%M:%S'),
+                                          '%2.1f' % voltage if is_number(voltage) else ' 0  ',
+                                          '%2.1f' % soc     if is_number(soc    ) else ' 0  ') }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
           dis_diff   : "{{ dischg_sum|float(0) - dis_last|float(0) }}"
@@ -1290,7 +1289,7 @@ automation:
           - condition: "{{ situation != 'any' }}"
           - service: notify.battery_data
             data_template:
-              message: "{{ '%s,0    ,%1.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
+              message: "{{ '%s0    ,%1.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
           - service: system_log.write
             data:
               message: "{{ 'switching to charge-only mode after discharging %.3f kWh due to %s' % (dis_diff, chg_reason) }}"
@@ -1320,7 +1319,7 @@ automation:
           - condition: "{{ situation != 'any' }}"
           - service: notify.battery_data
             data_template:
-              message: "{{ '%s,%1.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
+              message: "{{ '%s%1.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
           - service: system_log.write
             data:
               message: "{{ 'switching to discharge-only mode after charging %.3f kWh due to %s' % (chg_diff, dis_reason) }}"
@@ -1352,10 +1351,13 @@ automation:
       - condition: "{{ states('input_boolean.situation_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'sun elevation: %.1f°, avg power expected: %d W, battery: %s V %s %% %.1f hours' %
-                        (ele|round(1), avg_expected, vstr, socs, hours_avail) }},
+          message: "{{ 'sun elevation: %.1f°, avg power expected: %s W, battery: %s V %s %% %s hours' %
+                        (ele|round(1), '%3d' % avg_expected if is_number(prod_actual) else '  ?',
+                        '%2.1f' % voltage if is_number(voltage) else ' 0  ',
+                        '%2.1f' % soc     if is_number(soc    ) else ' 0  ',
+                        '%2.1f' % hours_avail if is_number(soc) else ' ?  ') }},
                     {{ 'mode: ' }}{{ states('input_select.situation') }}{{
-                       '' if states('input_select.situation') != 'discharge' else
+                       '' if states('input_select.situation') != 'discharge' or not is_number(soc) else
                        ', %s' % ('excess possible and battery nearly full' if may_excess and near_full else
                                  'should discharge now' if should_dis else 'should wait for discharging') }}"
           logger: situation
