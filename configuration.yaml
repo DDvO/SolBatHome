@@ -1214,29 +1214,42 @@ automation:
           prod       : "{{ states('sensor.power_production' ) }}"
           excess     : "{{ is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
-          time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
-          vstr: "{{ '%2.1f' % voltage if is_number(voltage) and voltage > 0 else ' 0  ' }}"
-          socs: "{{ '%2.1f' % soc     if is_number(soc    ) and soc     > 0 else ' 0  ' }}"
+
           capacity   : "{{ states('input_number.battery_capacity')|int  }}"
           avail      : "{{ max(0, soc|float(100) - 10) / 100 * capacity }}"  # if SoC not avaialable, assume full
-          hours_avail: "{{ (avail -    0) / 100 if avail <  100 else  1 +
-                           (avail -  100) /  60 if avail <  160 else  2 +
-                           (avail -  160) /  60 if avail <  220 else  3 +
-                           (avail -  220) /  60 if avail <  280 else  4 +
-                           (avail -  280) /  60 if avail <  340 else  5 +
-                           (avail -  340) /  60 if avail <  400 else  6 +
-                           (avail -  400) /  60 if avail <  460 else  7 +
-                           (avail -  460) /  60 if avail <  640 else  8 +
-                           (avail -  640) / 180 if avail <  820 else  9 +
-                           (avail -  820) / 180 if avail < 1000 else 10 +
-                           (avail - 1000) / 200 if avail < 1200 else 11 +
-                           (avail - 1200) / 200 if avail < 1400 else 12 +
-                           (avail - 1400) / 200 if avail < 1600 else 13 +
-                           (avail - 1600) / 200 if avail < 1800 else 15 +
-                           (avail - 1800) / 200 if avail < 2000 else 25 }}"  # likely hours of possible discharge until sunrise
+          hours_avail: >   # likely hours of possible discharge until sunrise
+            {% set map = [
+                { "energy":    0, "hour":  0 },
+                { "energy":  100, "hour":  1 },
+                { "energy":  640, "hour":  8 },
+                { "energy": 1000, "hour": 10 },
+                { "energy": 2000, "hour": 16 }
+              ] %}
+            {% set minEnergy = map[0             ].energy %}
+            {% set maxEnergy = map[map|length - 1].energy %}
+            {% if avail < minEnergy %}
+              0
+            {% elif avail >= maxEnergy %}
+              25
+            {% else %}
+              {% for i in range(map|length - 1)  %}
+                {% set e1 = map[i    ].energy    %}
+                {% set h1 = map[i    ].hour      %}
+                {% set e2 = map[i + 1].energy    %}
+                {% set h2 = map[i + 1].hour      %}
+                {% if e1 <= avail and avail < e2 %}
+                  {% set hour = h1 + (h2 - h1) * ((avail - e1) / (e2 - e1)) %}
+                    {{ hour|round(1) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
           next_rising: "{{ as_timestamp(states('sensor.sun_next_rising'))}}"
           to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
           should_dis : "{{ hours_avail >= to_sunrise                    }}"  # should discharge to reach low_batt by sunrise
+
+          time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
+          vstr: "{{ '%2.1f' % voltage if is_number(voltage) and voltage > 0 else ' 0  ' }}"
+          socs: "{{ '%2.1f' % soc     if is_number(soc    ) and soc     > 0 else ' 0  ' }}"
           time_soc   : "{{ '%s,%s,%s' % (time, vstr, socs)              }}"
           dis_last   : "{{ states('input_number.energy_discharge_last') }}"
           chg_last   : "{{ states('input_number.energy_charge_last'   ) }}"
