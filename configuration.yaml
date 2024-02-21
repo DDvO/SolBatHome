@@ -553,7 +553,7 @@ input_number:
     name: Target balance for charging
     initial: 10
     min: -50
-    max: 250
+    max: 550
     step: 10
     icon: mdi:battery-arrow-up-outline
   target_discharge:
@@ -869,28 +869,32 @@ automation:
       - variables:
           voltage   : "{{ states('sensor.battery_voltage') }}"
           # better not rely on charger switching off at maximum voltage
-          full_batt : "{{ voltage|float(99) >= states('input_number.full_batt_v')|float(0)
+          full_batt : "{{ voltage|float(99) >= states('input_number.full_batt_v')|float
                           and is_number(states('sensor.power_charge')) }}"  # TODO improve further to fully prevent hickup on quick reload where voltage may not yet be available
           # if voltage not available (happens also on quick relaod) and charging sensor is available, assume full battery, to be on safe side
-          empty_batt: "{{ voltage|float(100) < states('input_number.empty_batt_v')|float(0) }}"  # if voltage not available, assume no emergency
-          # after charging to target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
+          empty_batt: "{{ voltage|float(100) < states('input_number.empty_batt_v')|float }}"  # if voltage not available, assume no emergency
+          # after charging to some target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
-          cons:     "{{ states('sensor.power_consumption') }}"
-          balance:  "{{ states('sensor.power_balance')|float(0) }}" # TODO use average over the last seconds
-          chg_pow:  "{{ states('sensor.power_charge') }}"
-          charging: "{{ chg_pow|float(1) >= threshold }}"
+          cons:     "{{ states('sensor.power_consumption'    ) }}"
+          balance:  "{{ states('sensor.power_balance'        ) }}" # should not use input_number.power_balance_avg because feedback would be too slow
+          chg_pow:  "{{ states('sensor.power_charge_unstable') }}"
+      - condition: "{{ is_number(balance) and states('switch.test_switch') != 'unavailable' and
+                       is_number(chg_pow) }}"  # beware: after quick reload, it can take 30+ seconds for chg_pow to recover from 'unknown'
+      - variables:
+          charging: "{{ chg_pow >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
           target:   "{{ states('input_number.target_charge') }}"
-          tgtPower: "{{ chg_pow|int(0) + target - balance + 0 }}"
+          tgtPower: "{{ chg_pow + target - balance }}"
           min_rate: "{{  61 }}"  # min usable value, with efficiency of about 86%
           min_pow:  "{{  33 }}"  # power at min_rate
-          min_grad: "{{ 1.2 }}"  # power at min_rate
+          min_grad: "{{ 0.6 }}"  # gradient at min_rate
           max_rate: "{{ 255 }}"  # with rate 217, efficiency is about 95%
-          max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          lin_delta: "{{ ((target - balance) * (min_grad if tgtPower < 90 else 0.8 if tgtPower < 150
-                         else 0.6 if tgtPower < 300 else 0.4)) | int }}"  # used only for adaptation; higher factors may lead to overshooting
-          old_chg:  "{{ states.light.charge_control.attributes.brightness|int(0) }}"
+          lin_delta: "{{ ((target - balance) * (
+                         min_grad if tgtPower < 90 else 0.4 if tgtPower < 150 else
+                         0.3 if tgtPower < 300 else 0.2)) | int }}"  # used only for adaptation; higher values may lead to overshooting
+          old_chg:  "{{ states.light.charge_control.attributes.brightness|float(0) }}"  # may otherwise be 'None' when swiched off
           old_rate: "{{ old_chg if charging else min_rate - min_grad * min_pow }}"
+          max_delta: "{{ (max_rate - min_rate) / 1 }}"
           delta:    "{{ max(-max_delta, min(max_delta, lin_delta)) }}"
 
           # direct approach, based on last charge power
@@ -917,18 +921,18 @@ automation:
                 { "power": 451, "rate": max_rate }
               ]
             %}
-            {% set minPower = map[0].power %}
-            {% set maxPower = map[map|length-1].power %}
+            {% set minPower = map[0             ].power %}
+            {% set maxPower = map[map|length - 1].power %}
             {% if tgtPower < minPower %}
               {{ 0 }}
             {% elif tgtPower >= maxPower %}
               {{ max_rate }}
             {% else %}
-              {% for i in range(map|length - 1)    %}
-                {% set v1 = map[i    ].power       %}
-                {% set r1 = map[i    ].rate        %}
-                {% set v2 = map[i + 1].power       %}
-                {% set r2 = map[i + 1].rate        %}
+              {% for i in range(map|length - 1)        %}
+                {% set v1 = map[i    ].power           %}
+                {% set r1 = map[i    ].rate            %}
+                {% set v2 = map[i + 1].power           %}
+                {% set r2 = map[i + 1].rate            %}
                 {% if v1 <= tgtPower and tgtPower < v2 %}
                   {% set rate = r1 + (r2 - r1) * ((tgtPower - v1) / (v2 - v1)) %}
                     {{ rate|round(0) }}
@@ -937,8 +941,7 @@ automation:
             {% endif %}
 
           new_rate: "{{ max_rate if empty_batt else max(0, min(max_rate,
-                        old_rate + delta if lin_delta|abs < 10 or not is_number(chg_pow) else
-                        dir_rate if dir_rate > old_chg else dir_rate)) }}"
+                        old_rate + delta if lin_delta|abs < 10 or not is_number(chg_pow) else dir_rate)) }}"
           rate_min: "{{ new_rate < min_rate }}"
           disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(minutes=2) }}"
@@ -982,12 +985,12 @@ automation:
       - condition: "{{ states('input_boolean.charge_logged') == 'on' or empty_batt }}"
       - service: system_log.write
         data:
-          message: "{{ 'cons: %4d bal: %+5d charge old: %3d delta: %+4d new: %3s / %3d%s' %
-                    (cons | int(0), balance | int(0), old_rate, delta,
+          message: "{{ 'cons: %4d bal: %+5d charge pow: %3d tgt: %+4d rate old: %3d delta: %+4d dir: %3d new: %3s / %3d%s' %
+                    (cons | int(0), balance, chg_pow, tgtPower, old_rate, delta, dir_rate,
                     'off' if turn_off else 'min' if new_rate <= min_rate else
                     'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
                     ' disabled' if disabled else ('%s battery' % ('full' if is_number(voltage) else 'no')) if full_batt else
-                    ' still discharging' if disc_ing else ' at min for > 2 minutes' if long_min else '') }}"
+                    ' still discharging' if disc_ing else ' at min and was charging for > 2 minutes' if long_min else '') }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
@@ -1007,7 +1010,7 @@ automation:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
           voltage:  "{{ states('sensor.battery_voltage') }}"
           low_batt: "{{ voltage|float(0) < states('input_number.low_batt_v')|float }}"  # if voltage not available, assume low battery, to be on safe side
-          # after discharging to target voltage, voltage recovers, then battery is discharged further where voltage decreases quickly again, etc.
+          # after discharging to some target voltage, voltage recovers, then battery is discharged further where voltage decreases quickly again, etc.
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'   )|float(1) >= threshold }}"
           disc_pow: "{{ states('sensor.power_discharge')     }}"
