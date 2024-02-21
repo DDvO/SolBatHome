@@ -559,8 +559,8 @@ input_number:
   target_discharge:
     name: Target balance for discharging
     initial: 20
-    min: -150
-    max: 50
+    min: -250
+    max: 250
     step: 10
     icon: mdi:battery-arrow-down-outline
 
@@ -985,7 +985,7 @@ automation:
       - condition: "{{ states('input_boolean.charge_logged') == 'on' or empty_batt }}"
       - service: system_log.write
         data:
-          message: "{{ 'cons: %4d bal: %+5d charge pow: %3d tgt: %+4d rate old: %3d delta: %+4d dir: %3d new: %3s / %3d%s' %
+          message: "{{ 'cons: %4d bal: %+5d charge pow: %3d tgt: %+5d rate old: %3d delta: %+4d dir: %3d new: %3s / %3d%s' %
                     (cons | int(0), balance, chg_pow, tgtPower, old_rate, delta, dir_rate,
                     'off' if turn_off else 'min' if new_rate <= min_rate else
                     'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
@@ -1004,7 +1004,7 @@ automation:
 #        not_to:  # maybe no more needed
 #          - unavailable
       - platform: time_pattern
-        seconds: "/10"  # unfortunately, Hoymiles inverter react slowly and partly even erratically if changes requested more often
+        seconds: "/13"  # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often
     action:
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
@@ -1013,30 +1013,76 @@ automation:
           # after discharging to some target voltage, voltage recovers, then battery is discharged further where voltage decreases quickly again, etc.
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'   )|float(1) >= threshold }}"
-          disc_pow: "{{ states('sensor.power_discharge')     }}"
-          disc_ing: "{{ disc_pow|float(1) >= threshold       }}"
           balance:  "{{ states('input_number.power_balance_avg') }}"
+          disc_pow: "{{ states('sensor.power_discharge'        ) }}"
+        # prevDisc: "{{ states('sensor.discharge_rate'         ) }}" # the value reported via DTU
+          old_disc: "{{states('input_number.discharge_rate'    ) }}" # this is what we actually set
+      - condition: "{{ is_number(balance) and is_number(disc_pow) and is_number(old_disc)
+                       and states('sensor.hm_300_voltage') != 'unavailable' }}"  # battery is connected
+
+      - variables:
+          disc_ing: "{{ disc_pow >= threshold       }}"
           target:   "{{ states('input_number.target_discharge') }}"
         # absolute values for discharge control would be more precise, but Hoymiles latency is way too high when using them
           min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
           min_eff:  "{{ 10 }}"  # min percent value for HM-300 where efficiency is considered acceptable (at least some 90%)
           min_pow:  "{{ 25 }}"  # output power corresponding to min_eff limit value, used to prevent on/off oscillation
-          mid_rate: "{{ 20 }}"  # min percent value for HM-300 for which relative limit works rather linearly with factor 3
-          mid_pow:  "{{ 60 }}"  # output power corresponding to mid_rate
-          max_rate: "{{ 60 }}"  # max percent value for HM-300 for which relative limit works rather linearly with factor 3
-          max_pow:  "{{180 }}"  # output power corresponding to max_rate
+        # mid_rate: "{{ 20 }}"  # min percent value for HM-300 for which relative limit works rather linearly with factor 3
+        # mid_pow:  "{{ 60 }}"  # output power corresponding to mid_rate
+        # lin_rate: "{{ 60 }}"  # max percent value for HM-300 for which relative limit works rather linearly with factor 3
+        # lin_pow:  "{{180 }}"  # output power corresponding to max_rate
+          max_rate: "{{ 75 }}"  # max useful rate
+          max_pow:  "{{275 }}"  # output power corresponding to max_rate
         # number.hm_300_limit_{non,}persistent_absolute min values in .storage/core.entity_registry wrong: 10.0; should be < 9.0
+          gradient: "{{0.25}}"  # used only for adaptation; value must be suitable at least at min_rate; higher values may lead to overshooting
+
+          # direct approach, based on last charge power
+          tgtPower: "{{ disc_pow + balance - target }}"
+          dir_rate: >  # map tgtPower directly to rate
+            {% set map = [
+                { "power": min_pow, "rate":  min_eff },
+                { "power":  29, "rate": 11 },
+                { "power":  60, "rate": 20 },
+                { "power":  91, "rate": 30 },
+                { "power": 121, "rate": 40 },
+                { "power": 153, "rate": 50 },
+                { "power": 182, "rate": 60 },
+                { "power": 217, "rate": 65 },
+                { "power": 251, "rate": 70 },
+                { "power": max_pow, "rate": max_rate }
+              ]
+            %}
+            {% set minPower = map[0             ].power %}
+            {% set maxPower = map[map|length - 1].power %}
+            {% if tgtPower < minPower %}
+              {{ 0 }}
+            {% elif tgtPower >= maxPower %}
+              {{ max_rate }}
+            {% else %}
+              {% for i in range(map|length - 1)        %}
+                {% set v1 = map[i    ].power           %}
+                {% set r1 = map[i    ].rate            %}
+                {% set v2 = map[i + 1].power           %}
+                {% set r2 = map[i + 1].rate            %}
+                {% if v1 <= tgtPower and tgtPower < v2 %}
+                  {% set rate = r1 + (r2 - r1) * ((tgtPower - v1) / (v2 - v1)) %}
+                    {{ rate|round(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+        # old_pow : "{{  disc_pow             /            min_pow  *  min_eff             if disc_pow < min_pow else min_eff +
+        #               (disc_pow - min_pow)  / (mid_pow - min_pow) * (mid_rate - min_eff) if disc_pow < mid_pow else
+        #                disc_pow             /  lin_pow            *  lin_rate            if disc_pow < lin_pow else
+        #                lin_rate }}" # rate derived from power, which after a rate change is more realistic than old_disc
+        # old_rate: "{{ old_pow|round(0) if is_number(disc_pow) and ((old_disc - old_pow)|abs > 4 or old_disc == min_rate) else old_disc }}"
+          old_rate: "{{ old_disc }}"
+          lin_delta: "{{ ((balance - target) * gradient) | int }}"
           max_delta: "{{ (max_rate - min_rate) / 1 }}"
-          lin_delta: "{{ ((balance - target) * 0.30) | int }}"  # higher factor leads to overshooting
-          prev_disc: "{{states('input_number.discharge_rate') }}"  # more reliable than old_disc
-          old_disc: "{{ states('sensor.discharge_rate')|int(0) }}"
-          old_pow : "{{  disc_pow|float(0)             /             min_pow *  min_eff             if disc_pow|float(0) < min_pow else min_eff +
-                        (disc_pow|float(0) - min_pow)  / (mid_pow - min_pow) * (mid_rate - min_eff) if disc_pow|float(0) < mid_pow else
-                         disc_pow|float(0)             /  max_pow            *  max_rate            if disc_pow|float(0) < max_pow else
-                         max_rate }}" # rate derived from power, which after a rate change is more realistic than old_disc
-          old_rate: "{{ old_pow|round(0) if is_number(disc_pow) and ((old_disc - old_pow)|abs > 4 or old_disc == min_rate) else old_disc }}"
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, lin_delta)) }}"
-          new_rate: "{{ max(min_rate, min(max_rate, (old_rate if disc_ing else 0) + delta)) }}"
+          new_rate: "{{ max(min_rate, min(max_rate,
+                        (old_rate if disc_ing else min_eff - gradient * min_pow) + delta
+                                         if lin_delta|abs < 5 or not is_number(disc_pow) else dir_rate)) }}"
           rate_min: "{{ new_rate <= min_eff }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
           turn_off: "{{ disabled or charging or low_batt or rate_min }}"
@@ -1070,7 +1116,7 @@ automation:
                       value: "{{ min_rate }}"
         else:  # further actions only if inverter should not be off
           # set new rate if needed before maybe turning on
-          - if: "{{ new_rate != prev_disc }}"
+          - if: "{{ new_rate != old_disc }}"
             then:
             # https://www.home-assistant.io/integrations/number/
               - service: number.set_value
@@ -1101,13 +1147,14 @@ automation:
       - condition: "{{ states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'cons: %4d bal: %+5d dischg old: %3d delta: %+4d new: %3s / %3d%s' %
-                       (cons | int(0), balance | int(0), old_rate, delta,
+          message: "{{ 'cons: %4d bal: %+5d dischg pow: %3d tgt: %+5d rate old: %3d delta: %+4d dir: %3d new: %3s / %3d%s' %
+                       (cons | int(0), balance, disc_pow, tgtPower, old_rate, delta, dir_rate,
                        'off' if turn_off else 'min' if new_rate <= min_rate else 'eff' if new_rate == min_eff else
                        'max' if new_rate == max_rate else '%3d' % new_rate, max_rate,
                        ' disabled' if disabled else ' still charging' if charging else
                        (' %s battery' % ('low' if is_number(voltage) else 'no')) if low_batt else ' at min' if rate_min else
                        (' turning inverter off'  if     disc_ing else '') if turn_off else
                         ' turning inverter on'   if not disc_ing else '') }}"
+                  # {{ 'prevDisc %s' % prevDisc }} {{ 'vs. old_disc %s' % old_disc }} {{ 'old_pow %s' % old_pow }} {{ 'old_rate %s' % old_rate }}"
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
