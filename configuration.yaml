@@ -542,6 +542,14 @@ input_number:
     max: +999999
     mode: box
 
+
+  last_dis_charge_sum: # when updating battery SoC, in kWs
+    name: Last Charge + Discharge sum
+    initial: 0  # workaround for not being able to use 'unknown'
+    min: 0
+    max: +999999
+    mode: box
+
 notify: # https://www.home-assistant.io/integrations/file/
 
   - name: power_data
@@ -730,15 +738,21 @@ automation:
         ## https://community.home-assistant.io/t/uptime-in-days-hours-and-minutes/180916/40
         #value_template: "{{ as_timestamp(now()) - as_timestamp(states('sensor.uptime')) }}"
         #above: 1 # at least one second after HA restart
-      # update when battery has not been charged or discharged for a while
-      - platform: numeric_state
-        entity_id:
-           - sensor.power_charge
-           - sensor.power_discharge
-        value_template: "{{ states('sensor.power_charge'   )|float(1) +
-                            states('sensor.power_discharge')|float(1) }}"
-        below: 1
-        for: "00:30:00"  # battery takes some 30 seconds to recover stable voltage after being (dis)charged
+
+      # make sure to update when battery has not been charged or discharged for a while
+      # battery may take some 3 minutes to recover stable voltage after being (dis)charged
+      # the official value-based trigger does not work reliably:
+    # - platform: numeric_state
+    #   entity_id:
+    #      - sensor.power_charge
+    #      - sensor.power_discharge
+    #   value_template: "{{ states('sensor.power_charge'   )|float(1) +
+    #                       states('sensor.power_discharge')|float(1) }}"
+    #   below: 1
+    #   for: "00:03:00"
+      # as a workaround, do the (dis)charge activity check ourselves:
+      - platform: time_pattern
+        minutes: "/3"
     action:
       - variables:
           chg_pow : "{{ states('sensor.power_charge'             ) }}"
@@ -811,15 +825,16 @@ automation:
           efficiency: "{{ 0.75 }}"
           offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
           new_bal   : "{{ soc / 100 * capacity - offset }}"
-      - condition: "{{ is_number(charge_sum) and is_number(dischg_sum) }}"
+      - condition: "{{ new_bal|round(3) != old_bal|round(3) }}"
       - service: input_number.set_value
         data:
           entity_id: input_number.last_charge_balance
           value: "{{ new_bal }}"
-      - delay: "00:00:01"  # give sensor.battery_soc some time to update itself
+      - delay: "00:00:01"  # give sensor.battery_soc a little time to update itself
       - service: system_log.write
         data:
           message: "{{ 'battery SoC adapted from ' }}{{ old_soc }}{{ ' to ' }}{{ states('sensor.battery_soc') }}{{ ' %; voltage: ' }}{{ voltage }}{{
-                    ' V; charge_balance updated from ' }}{{ old_bal }}{{ ' to ' }}{{ new_bal }}{{ ' Wh ' }}"
+                    ' V; charge_balance updated from ' }}{{ old_bal|round(2) if is_number(old_bal) else old_bal }}
+                                             {{ ' to ' }}{{ new_bal|round(2) if is_number(new_bal) else new_bal }}{{ ' Wh ' }}"
           logger: battery
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
