@@ -1191,11 +1191,15 @@ automation:
           next_setting: "{{ as_timestamp(states('sensor.sun_next_setting'))       }}"
           to_sunset   : "{{ (next_setting - as_timestamp(now())) / 3600           }}"  # number of hours until next sunset
           ele         : "{{ state_attr('sun.sun', 'elevation')                    }}"
-          prod_to_come: "{{ states('sensor.energy_production_today_remaining')    }}"  # based on forecast
-          prod_all_day: "{{ states('sensor.energy_production_today'          )    }}"  # based on forecast
-          prod_fc     : "{{ prod_all_day - prod_to_come                           }}"  # production until now forecast
+          prod_hour   : "{{ states('sensor.energy_current_hour'              )    }}"  # based on forecast
+          prod_remain : "{{ states('sensor.energy_production_today_remaining')    }}"  # based on forecast
+          prod_to_come: "{{ prod_remain - prod_hour                               }}"  # production from now based on forecast
+          prod_today  : "{{ states('sensor.energy_production_today'          )    }}"  # based on forecast
+          prod_tomorrow: "{{ states('sensor.energy_production_tomorrow'      )    }}"  # based on forecast
+          prod_fc     : "{{ prod_today - prod_to_come                             }}"  # production until now based on forecast
           prod_actual : "{{ states('sensor.energy_production_daily')              }}"  # production until now actually
-          calibration : "{{ 0.2 if prod_fc == 0 else prod_actual|float(0) / prod_fc }}"
+          default_cal : "{{ 0.50                                                  }}"  # forecast tends to be way too optimistic - why?
+          calibration : "{{ default_cal if prod_fc == 0 else prod_actual|float(0) / prod_fc }}"
           avg_expected: "{{ 0 if to_sunset == 0 else
                             1000 * prod_to_come / to_sunset * calibration         }}"
           min_load   : "{{ 37 }}"
@@ -1217,9 +1221,21 @@ automation:
           excess     : "{{ is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
 
-          capacity   : "{{ states('input_number.battery_capacity')|int  }}"
-          avail      : "{{ max(0, soc|float(100) - 10) / 100 * capacity }}"  # if SoC not avaialable, assume full
-          hours_avail: >   # likely hours of possible discharge until sunrise
+          capacity   : "{{ states('input_number.battery_capacity')|int }}"
+          avg_dayprod: "{{ 1.224 }}"                                                   # average  PV  production per day in kWh
+          avg_owncons: "{{ 0.761 }}"                                                   # average own consumption per day in kWh
+          next_midnight  : "{{ as_timestamp(states('sensor.sun_next_midnight'))   }}"
+          before_midnight: "{{ (next_midnight - as_timestamp(now())) / 3600 < 12  }}"
+          prod_next  : "{{ (prod_tomorrow if before_midnight else prod_today)
+                           if is_number(prod_today) and is_number(prod_tomorrow) else avg_dayprod }}"
+          expect_prod: "{{ prod_next * default_cal                                }}"  # based on forecast, defaulting to average daily production
+          efficiency : "{{ states('input_number.storage_efficiency')|float        }}"
+          expect_chg : "{{ max(0, expect_prod - avg_owncons) * 1000
+                           * efficiency / capacity * 100                          }}"  # energy in Wh expected to be added to the battery charge today
+          tgt_soc    : "{{ max(states('input_number.low_batt_soc')|int,
+                                      part_batt_soc - expect_chg)                 }}"  # target battery SoC to reach by sunrise, for at least partial SoC during day
+          tgt_dischg : "{{ max(0, (soc|float(100) - tgt_soc) / 100 * capacity)    }}"  # if SoC not avaialable, assume full
+          hours_tgt_dischg: >                                         # likely hours of discharge to reach target SoC until sunrise, based on typical consumption
             {% set map = [
                 { "energy":    0, "hour":  0 },
                 { "energy":  100, "hour":  1 },
@@ -1229,9 +1245,9 @@ automation:
               ] %}
             {% set minEnergy = map[0             ].energy %}
             {% set maxEnergy = map[map|length - 1].energy %}
-            {% if avail < minEnergy %}
+            {% if tgt_dischg < minEnergy %}
               0
-            {% elif avail >= maxEnergy %}
+            {% elif tgt_dischg >= maxEnergy %}
               25
             {% else %}
               {% for i in range(map|length - 1)  %}
@@ -1239,15 +1255,15 @@ automation:
                 {% set h1 = map[i    ].hour      %}
                 {% set e2 = map[i + 1].energy    %}
                 {% set h2 = map[i + 1].hour      %}
-                {% if e1 <= avail and avail < e2 %}
-                  {% set hour = h1 + (h2 - h1) * ((avail - e1) / (e2 - e1)) %}
+                {% if e1 <= tgt_dischg and tgt_dischg < e2 %}
+                  {% set hour = h1 + (h2 - h1) * ((tgt_dischg - e1) / (e2 - e1)) %}
                     {{ hour|round(1) }}
                 {% endif %}
               {% endfor %}
             {% endif %}
-          next_rising: "{{ as_timestamp(states('sensor.sun_next_rising'))}}"
-          to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
-          should_dis : "{{ part_full or hours_avail >= to_sunrise       }}"  # should discharge towards partial SoC or to reach low_batt by sunrise
+          next_rising: "{{ as_timestamp(states('sensor.sun_next_rising')) }}"
+          to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600     }}"  # number of hours until next sunrise
+          should_dis : "{{ part_full or tgt_hours >= to_sunrise           }}"  # should discharge towards partial SoC or to reach low_batt by sunrise
 
           time_soc   : "{{ '%s,%s,%s,' % (now().strftime('%Y-%m-%d %H:%M:%S'),
                                           '%2.1f' % voltage if is_number(voltage) else ' 0  ',
@@ -1353,11 +1369,11 @@ automation:
       - condition: "{{ states('input_boolean.situation_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ 'sun elevation: %.1f°, avg power expected: %s W, battery: %s V %s %% %s hours' %
-                        (ele|round(1), '%3d' % avg_expected if is_number(prod_actual) else '  ?',
-                        '%2.1f' % voltage if is_number(voltage) else ' 0  ',
-                        '%2.1f' % soc     if is_number(soc    ) else ' 0  ',
-                        '%2.1f' % hours_avail if is_number(soc) else ' ?  ') }},
+          message: "{{ 'sun elevation: %+5.1f°, expected avg power: %s W and SoC gain: %2d %%; battery: %s V %s %% %s hours' %
+                        (ele, '%3d' % avg_expected if is_number(prod_actual) else '  ?', expect_chg,
+                        '%4.1f' % voltage if is_number(voltage) else ' ?  ',
+                        '%4.1f' % soc     if is_number(soc    ) else ' ?  ',
+                        '%4.1f' % hours_tgt_dischg if is_number(soc) else ' ?  ') }},
                     {{ 'mode: ' }}{{ states('input_select.situation') }}{{
                        '' if states('input_select.situation') != 'discharge' or not is_number(soc) else
                        ', %s' % ('excess possible and battery nearly full' if may_excess and near_full else
