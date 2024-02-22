@@ -1206,6 +1206,8 @@ automation:
           soc        : "{{ states('sensor.battery_soc'      ) }}"
           empty_batt : "{{ voltage|float(100) < states('input_number.empty_batt_v')|float(0) }}"  # if voltage not available, assume no emergency
           low_batt   : "{{ soc|float(0)  <  states('input_number.low_batt_soc' )|int      }}"  # if SoC not available, assume low battery
+          part_soc   : "{{                  states('input_number.part_batt_soc')|int      }}"
+          part_full  : "{{ soc|float(0)  >                       part_soc                 }}"  # if SoC not available, do not assume at least partly full
           near_full  : "{{ soc|float(0)  >= states('input_number.near_batt_soc')|float(0) }}"  # if SoC not available, do not assume nearly full
           full_batt  : "{{ soc|float(0)  >= states('input_number.full_batt_soc')|float(0) }}"  # if SoC not available, do not assume full battery
           # need to use float(0) above - see https://github.com/home-assistant/home-assistant.io/issues/30992
@@ -1245,7 +1247,7 @@ automation:
             {% endif %}
           next_rising: "{{ as_timestamp(states('sensor.sun_next_rising'))}}"
           to_sunrise : "{{ (next_rising - as_timestamp(now())) / 3600   }}"  # number of hours until next sunrise
-          should_dis : "{{ hours_avail >= to_sunrise                    }}"  # should discharge to reach low_batt by sunrise
+          should_dis : "{{ part_full or hours_avail >= to_sunrise       }}"  # should discharge towards partial SoC or to reach low_batt by sunrise
 
           time_soc   : "{{ '%s,%s,%s,' % (now().strftime('%Y-%m-%d %H:%M:%S'),
                                           '%2.1f' % voltage if is_number(voltage) else ' 0  ',
@@ -1359,7 +1361,8 @@ automation:
                     {{ 'mode: ' }}{{ states('input_select.situation') }}{{
                        '' if states('input_select.situation') != 'discharge' or not is_number(soc) else
                        ', %s' % ('excess possible and battery nearly full' if may_excess and near_full else
-                                 'should discharge now' if should_dis else 'should wait for discharging') }}"
+                                 'should discharge now %s' % ('towards partial SoC' if part_full else 'to reach low before sunrise')
+                                 if should_dis else 'should wait for discharging') }}"
           logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
