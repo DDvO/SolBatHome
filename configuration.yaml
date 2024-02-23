@@ -1191,6 +1191,7 @@ automation:
           next_setting: "{{ as_timestamp(states('sensor.sun_next_setting'))       }}"
           to_sunset   : "{{ (next_setting - as_timestamp(now())) / 3600           }}"  # number of hours until next sunset
           ele         : "{{ state_attr('sun.sun', 'elevation')                    }}"
+          sun_is_up   : "{{ ele|float(99) > 1                                     }}"  # if ele not available, assume sun is up
           prod_hour   : "{{ states('sensor.energy_current_hour'              )    }}"  # based on forecast
           prod_remain : "{{ states('sensor.energy_production_today_remaining')    }}"  # based on forecast
           prod_to_come: "{{ prod_remain - prod_hour                               }}"  # production from now based on forecast
@@ -1204,7 +1205,7 @@ automation:
                             1000 * prod_to_come / to_sunset * calibration         }}"
           min_load   : "{{ 37 }}"
           avg_excess : "{{ not is_number(prod_actual) or avg_expected > min_load  }}"  # on average, excess expected
-          may_excess : "{{ ele|float(99) > 1 and (true or avg_excess)             }}"  # excess is possible today; surely not from sunset to sunrise
+          may_excess : "{{ sun_is_up and (true or avg_excess)                     }}"  # excess still possible today; surely not from sunset to sunrise
 
           voltage    : "{{ states('sensor.battery_voltage'  ) }}"
           soc        : "{{ states('sensor.battery_soc'      ) }}"
@@ -1218,7 +1219,7 @@ automation:
 
           cons       : "{{ states('sensor.power_consumption') }}"
           prod       : "{{ states('sensor.power_production' ) }}"
-          excess     : "{{ is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
+          excess     : "{{ sun_is_up and is_number(cons) and prod|float(0) - cons|float(0) > 0 }}"
         # need significant hysteresis for battery voltage because it drops quickly after switching from charge to discharge
 
           capacity   : "{{ states('input_number.battery_capacity')|int }}"
