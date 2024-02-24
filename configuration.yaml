@@ -1035,9 +1035,8 @@ automation:
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, lin_delta)) }}"
           new_rate: "{{ max(min_rate, min(max_rate, (old_rate if disc_ing else 0) + delta)) }}"
           rate_min: "{{ new_rate <= min_eff }}"
-          chg_only: "{{ states('input_boolean.charge_only') == 'on' }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
-          turn_off: "{{ disabled or chg_only or charging or low_batt or rate_min }}"
+          turn_off: "{{ disabled or charging or low_batt or rate_min }}"
       - if: "{{ turn_off }}"
         then:
           # perform any changes only when needed
