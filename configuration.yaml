@@ -934,7 +934,9 @@ automation:
           old_rate: "{{ max(min_rate, states('sensor.discharge_rate')|int(0)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          turn_off: "{{ states('input_boolean.discharge_enabled') == 'off' or charging or low_batt or low_rate }}"
+          bright:   "{{ states('input_boolean.sunshine_period') == 'on' }}"
+          disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
+          turn_off: "{{ disabled or bright or charging or low_batt or low_rate }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
