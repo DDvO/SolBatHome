@@ -854,9 +854,11 @@ automation:
           delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
+          dark:     "{{ states('input_boolean.sunshine_period') == 'off' }}"
+          disabled: "{{ states('input_boolean.charge_enabled') == 'off' }}"
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(seconds=120) }}"
           long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=  5) }}"
-          turn_off: "{{ states('input_boolean.charge_enabled') == 'off' or disc_ing or (low_rate and long_on) }}"
+          turn_off: "{{ disabled or dark or disc_ing or (low_rate and long_on) }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
