@@ -1222,7 +1222,7 @@ automation:
           time       : "{{ now().strftime('%Y-%m-%d %H:%M:%S')          }}"
           vstr: "{{ '%2.1f' % voltage if is_number(voltage) else ' 0  ' }}"
           socs: "{{ '%2.1f' % soc     if is_number(soc    ) else ' 0  ' }}"
-          capacity   : "{{ 1300                                         }}"
+          capacity   : "{{ states('input_number.battery_capacity')|int  }}"
           avail      : "{{ max(0, soc|float(100) - 10) / 100 * capacity }}"  # if SoC not avaialable, assume full
           hours_avail: "{{ (avail -    0) / 100 if avail <  100 else  1 +
                            (avail -  100) /  60 if avail <  160 else  2 +
