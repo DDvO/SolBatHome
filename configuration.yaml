@@ -590,10 +590,12 @@ input_boolean:
     icon: mdi:battery-arrow-up-outline
   discharge_enabled:
     name: Discharge enabled
+    # unique_id: discharge_enabled_id
     initial: "on"
     icon: mdi:battery-arrow-down-outline
   discharge_logged:
     name: Discharge logged
+    # unique_id: discharge_logged_id
     icon: mdi:battery-arrow-down-outline
 
 input_number:
@@ -926,8 +928,9 @@ automation:
     action:
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
-          voltage:  "{{ states('sensor.battery_voltage')|float(0) }}"
-          low_batt: "{{ voltage < 24 }}"
+          voltage:  "{{ states('sensor.battery_voltage') }}"
+          low_batt: "{{ voltage|float(0) < 24 }}"    # if not avaiable, assume low battery, to be on safe side
+          near_ful: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will allow discharging also with still daylight
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
@@ -944,9 +947,9 @@ automation:
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
           new_rate: "{{ max(min_rate, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate <= min_eff }}"
-          bright:   "{{ states('input_boolean.sunshine_period'  ) == 'on' }}"
+          day_batt_not_near_full: "{{ states('input_boolean.sunshine_period'  ) == 'on' and not near_ful }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
-          turn_off: "{{ disabled or bright or charging or low_batt or low_rate }}"
+          turn_off: "{{ disabled or day_batt_not_near_full or charging or low_batt or low_rate }}"
       - if: "{{ turn_off }}"
         then:
           # perform any changes only when needed
@@ -993,11 +996,11 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'consumption: %4d balance: %+5d dischg old: %2d delta: %2d new: %3s / %2d%s, battery: %sV' %
+          message: "{{ 'cons: %4d bal: %+5d dischg old: %2d delta: %2d new: %3s / %2d%s' %
                        (cons | int(0), balance | int(0), old_rate, delta,
                        'off' if turn_off else 'min' if new_rate <= min_rate else 'eff' if new_rate == min_eff else
                        'max' if new_rate == max_rate else new_rate, max_rate,
-                       ' disabled' if disabled else ' too bright'  if bright   else
-                       ' charging' if charging else ' low battery' if low_batt else ' at min' if low_rate else '', voltage) }}"
+                       ' disabled' if disabled else ' daylight and not still nearly full battery' if day_batt_not_near_full else
+                       ' due to charging' if charging else ' low battery' if low_batt else ' at min' if low_rate else '') }}"
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
