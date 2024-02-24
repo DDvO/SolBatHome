@@ -550,7 +550,12 @@ input_boolean:
 
   sunshine_period:
     name: Sunshine period
+    # unique_id: sunshine_period_id
     icon: mdi:sun-angle-outline
+  still_nearly_full:
+    name: Battery still nearly full # after being full
+    # unique_id: still_nearly_full_id
+    icon: mdi:battery-90
 
 input_number:
   target_charge:
@@ -1150,17 +1155,21 @@ automation:
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
-  - id: sunshine_period
+  # overall control of charge vs. discharge depending on sun elevation, power balance, and battery voltage
+  - id: situation
     initial_state: true
     trigger:
       - platform: state
         entity_id: sun.sun
         attribute: elevation
+      - platform: state
+        entity_id: sensor.battery_voltage
     action:
       - variables:
-          ele: "{{ state_attr('sun.sun', 'elevation') }}"
+          ele    : "{{ state_attr('sun.sun', 'elevation') }}"
+          voltage: "{{ states('sensor.battery_voltage') }}"
       # deliberately not using sensor.power_production here - relevant for charging is excess power
-      - if: "{{ ele > 1 and states('sensor.power_balance')|float(0) < 0 }}"
+      - if: "{{ ele > 1 and states('sensor.power_balance')|float(0) + states('sensor.power_discharge')|float(0) < 0 }}"
         then:
           - service: input_boolean.turn_on
             target:
@@ -1170,10 +1179,21 @@ automation:
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.sunshine_period
+      - if: "{{ voltage|float(0) >= 27.0 }}"
+        then:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.still_nearly_full
+      # need significant hysteresis here because battery voltage drops quickly after switching from charge to disharge
+      - if: "{{ voltage|float(99) < 26.0 }}"
+        then:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.still_nearly_full
       - condition: "{{ states('input_boolean.charge_logged'   ) == 'on' or
                        states('input_boolean.discharge_logged') == 'on' }}"
       - service: system_log.write
         data:
-          message: "{{ state_attr('sun.sun', 'elevation') }}"
-          logger: sun elevation
+          message: "{{ 'sun elevation: %s°, battery: %sV' % (state_attr('sun.sun', 'elevation')|round(1), voltage) }}"
+          logger: situation
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
