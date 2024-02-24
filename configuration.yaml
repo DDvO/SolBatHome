@@ -931,7 +931,7 @@ automation:
           voltage:  "{{ states('sensor.battery_voltage') }}"
           low_batt: "{{ voltage|float(0) < 24.1 }}"    # if not avaiable, assume low battery, to be on safe side
           # is this a problem? on low_batt, voltage recovers, then battery is discharged again where voltage drops quickly again, etc.
-          near_ful: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will allow discharging also with still daylight
+          near_full: "{{ states('input_boolean.still_nearly_full') == 'on' }}"  # in this case, will allow discharging also with still daylight
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
           disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
@@ -949,9 +949,9 @@ automation:
           delta:    "{{ 0 if old_rate == min_eff and balance - target <= min_pow else max(-max_delta, min(max_delta, gradient)) }}"
           new_rate: "{{ max(min_rate, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate <= min_eff }}"
-          day_batt_not_near_full: "{{ states('input_boolean.sunshine_period'  ) == 'on' and not near_ful }}"
+          excess_and_batt_not_near_full: "{{ states('input_boolean.excess_period') == 'on' and not near_full }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
-          turn_off: "{{ disabled or day_batt_not_near_full or charging or low_batt or low_rate }}"
+          turn_off: "{{ disabled or excess_and_batt_not_near_full or charging or low_batt or low_rate }}"
       - if: "{{ turn_off }}"
         then:
           # perform any changes only when needed
@@ -1010,7 +1010,7 @@ automation:
                        (cons | int(0), balance | int(0), old_rate, delta,
                        'off' if turn_off else 'min' if new_rate <= min_rate else 'eff' if new_rate == min_eff else
                        'max' if new_rate == max_rate else new_rate, max_rate,
-                       ' disabled' if disabled else ' daylight and not still nearly full battery' if day_batt_not_near_full else
+                       ' disabled' if disabled else ' in PV excess period and not still nearly full battery' if excess_and_batt_not_near_full else
                        ' due to charging' if charging else ' low battery' if low_batt else ' at min' if low_rate else '') }}"
           logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
