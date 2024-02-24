@@ -548,9 +548,9 @@ input_boolean:
     # unique_id: discharge_logged_id
     icon: mdi:battery-arrow-down-outline
 
-  sunshine_period:
-    name: Sunshine period
-    # unique_id: sunshine_period_id
+  excess_period:
+    name: PV excess period
+    # unique_id: excess_period_id
     icon: mdi:sun-angle-outline
   still_nearly_full:
     name: Battery still nearly full # after being full
@@ -1167,18 +1167,18 @@ automation:
     action:
       - variables:
           ele    : "{{ state_attr('sun.sun', 'elevation') }}"
+          excess : "{{ states('sensor.power_production')|float(0) - states('sensor.power_consumption')|float(0) }}"
           voltage: "{{ states('sensor.battery_voltage') }}"
-      # deliberately not using sensor.power_production here - relevant for charging is excess power
-      - if: "{{ ele > 1 and states('sensor.power_balance')|float(0) + states('sensor.power_discharge')|float(0) < 0 }}"
+      - if: "{{ ele > 1 and excess > 0 }}"
         then:
           - service: input_boolean.turn_on
             target:
-              entity_id: input_boolean.sunshine_period
+              entity_id: input_boolean.excess_period
       - if: "{{ ele < 1 }}"  # cannot expect excess power for the rest of the day
         then:
           - service: input_boolean.turn_off
             target:
-              entity_id: input_boolean.sunshine_period
+              entity_id: input_boolean.excess_period
       - if: "{{ voltage|float(0) >= 27.0 }}"
         then:
           - service: input_boolean.turn_on
