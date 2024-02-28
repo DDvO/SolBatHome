@@ -570,6 +570,27 @@ input_number:
     max: +999999
     mode: box
 
+# (ab-)using input for remembering value in automation https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
+  last_voltage_at_rest:  # battery voltage on SoC update at rest, not having been (dis)charged for a while
+    initial: 0
+    min:  0
+    max: 60
+  last_soc_at_rest:  # battery SoC on SoC update at rest
+    initial: 0
+    min: 0
+    max: 100
+
+  power_balance_avg:
+    name: Power Balance Rolling Average
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
+
+input_text:
+  battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
+    name: Battery status
+
 notify: # https://www.home-assistant.io/integrations/file/
 
   - name: power_data
@@ -676,12 +697,30 @@ automation:
       - service: notify.power_data
         data_template: # time zone: %z
           message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f,%s' %
-                       (time, 0 if unav else cons,
-                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '    ?',
-                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '    ?',
-                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '    ?',
+                       (time, '    ?  ' if unav else cons,
+                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '  ?  ',
+                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '  ?  ',
+                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '  ?  ',
                         powA, powB, powC,
                         'per-channel powers unavailable' if unav else 'consumption non-positive' if cons <= 0 else '') }}"
+      - variables:
+          volt        : "{{ states('sensor.battery_voltage'           )          }}"
+          soc         : "{{ states('sensor.battery_soc'               )          }}"
+          volt_at_rest: "{{ states('input_number.last_voltage_at_rest')|float(0) }}"
+          soc_at_rest : "{{ states('input_number.last_soc_at_rest'    )|float(0) }}"
+          batt_status : "{{ '%s,%s,%s' %
+                            ('%4.1f' % volt if is_number(volt) else ' ?  ',
+                             '%4.1f' % soc  if is_number(soc ) else ' ?  ',
+                             'charging' if is_number(chrg) and chrg != 0 else
+                             'disc_ing' if is_number(disc) and disc != 0 else
+                             ' at rest' if volt|float(-1) == volt_at_rest and
+                                           soc |float(-1) ==  soc_at_rest else
+                            'previously at rest: %.1f V %.1f %%' % (volt_at_rest, soc_at_rest)) }}"
+      - service: input_text.set_value
+        data:
+          entity_id: input_text.battery_status
+          value: "{{ batt_status }}"
+
       - service: light.turn_on
         target:
           entity_id: light.power_import
@@ -710,17 +749,21 @@ automation:
           bal:  "{{ 1000 * states('sensor.energy_balance_hourly'    )|float }}"
           imp:  "{{ 1000 * states('sensor.energy_import_hourly'     )|float }}"
           exp:  "{{ 1000 * states('sensor.energy_export_hourly'     )|float }}"
+          # unavailable values of above variables intentionally lead to missing output line
+
           chrg: "{{ 1000 * states('sensor.energy_charge_hourly'     )|float }}"
           disc: "{{ 1000 * states('sensor.energy_discharge_hourly'  )|float }}"
-          volt: "{{ states('sensor.battery_voltage')              }}"
-          soc : "{{ states('sensor.battery_soc')                  }}"
-          # unavailable values intentionally lead to missing output line
+          volt   : "{{ states('sensor.battery_voltage') }}"
+          soc    : "{{ states('sensor.battery_soc')     }}"
       - service: notify.energy_data
         data_template:
-          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%4d,%s,%s' %
-                       (time, cons, prod, own, bal, imp, exp, chrg, disc,
-                        '%2.1f' % volt if is_number(volt) else ' 0  ',
-                        '%2.1f' % soc  if is_number(soc ) else ' 0  ') }}"
+          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d%s' %
+                       (time, cons, prod, own, bal, imp, exp,
+                        ',%s,%s,%s' % (
+                          '%4d'   % chrg if is_number(chrg) else '   ?',
+                          '%4d'   % disc if is_number(disc) else '   ?',
+                          states('input_text.battery_status'))
+                        if is_number(chrg) or is_number(disc) or is_number(volt) else '') }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
@@ -745,7 +788,7 @@ automation:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
 
-  - id: set_last_charge_balance
+  - id: adapt_soc_at_rest
     initial_state: true
     trigger:
       # must initialize after HA restart; make sure to do when battery voltage has become available
@@ -759,7 +802,8 @@ automation:
         #value_template: "{{ as_timestamp(now()) - as_timestamp(states('sensor.uptime')) }}"
         #above: 1 # at least one second after HA restart
 
-      # make sure to update when battery has not been charged or discharged for a while
+      # for determinining the battery SoC using the Open Circuit Voltage Method (OCV),
+      # continue only when battery has not been charged or discharged for a while
       # battery may take some 3 minutes to recover stable voltage after being (dis)charged
       # the official value-based trigger does not work reliably:
     # - platform: numeric_state
@@ -847,16 +891,25 @@ automation:
           efficiency: "{{ states('input_number.storage_efficiency')|float }}"
           offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
           new_bal   : "{{ soc / 100 * capacity - offset }}"
-      - condition: "{{ new_bal|round(3) != old_bal|round(3) }}"
+      - if: "{{ new_bal|round(3) != old_bal|float(999999)|round(3) }}"
+        then:
+          - service: input_number.set_value
+            data:
+              entity_id: input_number.last_charge_balance
+              value: "{{ new_bal }}"
+          - delay: "00:00:01"  # give sensor.battery_soc a little time to update itself
+          - service: system_log.write
+            data:
+              message: "{{ 'battery SoC adapted from ' }}{{ old_soc }}{{ ' to ' }}{{ states('sensor.battery_soc') }}{{ ' %; voltage: ' }}{{ voltage }}{{
+                        ' V; charge_balance updated from ' }}{{ old_bal|round(2) if is_number(old_bal) else old_bal }}{{
+                                                    ' to ' }}{{ new_bal|round(2) if is_number(new_bal) else new_bal }}{{ ' Wh ' }}"
+              logger: battery
+              level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
       - service: input_number.set_value
         data:
-          entity_id: input_number.last_charge_balance
-          value: "{{ new_bal }}"
-      - delay: "00:00:01"  # give sensor.battery_soc a little time to update itself
-      - service: system_log.write
+          entity_id: input_number.last_voltage_at_rest
+          value: "{{ voltage }}"
+      - service: input_number.set_value
         data:
-          message: "{{ 'battery SoC adapted from ' }}{{ old_soc }}{{ ' to ' }}{{ states('sensor.battery_soc') }}{{ ' %; voltage: ' }}{{ voltage }}{{
-                    ' V; charge_balance updated from ' }}{{ old_bal|round(2) if is_number(old_bal) else old_bal }}
-                                             {{ ' to ' }}{{ new_bal|round(2) if is_number(new_bal) else new_bal }}{{ ' Wh ' }}"
-          logger: battery
-          level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
+          entity_id: input_number.last_soc_at_rest
+          value: "{{ states('sensor.battery_soc') }}"
