@@ -575,44 +575,12 @@ input_number:
     max: 999999
     mode: box
 
-# defining the inputs before the automations such that they can be modified without restarting HA
-# https://www.home-assistant.io/integrations/input_boolean/
-# input_* does not allow setting a unique_id - bug report https://github.com/home-assistant/core/issues/109741
-input_boolean:
-  charge_enabled:
-    name: Charge enabled
-    # unique_id: charge_enabled_id
-    initial: "on"
-    icon: mdi:battery-arrow-up-outline
-  charge_logged:
-    name: Charge logged
-    # unique_id: charge_logged_id
-    icon: mdi:battery-arrow-up-outline
-  discharge_enabled:
-    name: Discharge enabled
-    # unique_id: discharge_enabled_id
-    initial: "on"
-    icon: mdi:battery-arrow-down-outline
-  discharge_logged:
-    name: Discharge logged
-    # unique_id: discharge_logged_id
-    icon: mdi:battery-arrow-down-outline
-
-input_number:
-  target_charge:
-    name: Target balance for charging
-    initial: 10
-    min: -50
-    max: 250
-    step: 10
-    icon: mdi:battery-arrow-up-outline
-  target_discharge:
-    name: Target balance for discharging
-    initial: 20
-    min: -150
-    max: 50
-    step: 10
-    icon: mdi:battery-arrow-down-outline
+  power_balance_avg2:
+    name: Power Balance Rolling Average
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
 
   power_balance_avg:
     name: Power Balance Rolling Average
@@ -839,6 +807,25 @@ automation:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
 
+  - id: update_power_balance_avg2
+    initial_state: true
+    trigger:
+      - platform: time_pattern
+        seconds: "/1"
+    action:
+      # upward rolling average over 2 seconds, used to smoothen peaks in particular on fridge compressor startup
+      # https://community.home-assistant.io/t/input-number-moving-average-calculation/453728/1
+      # value of platform: statistics would be often 'Unknown' and does not really provide rolling average
+      - variables:
+          samples: "{{ 2 }}"
+          prev   : "{{ states('input_number.power_balance_avg2') }}"
+          curr   : "{{ states('sensor.power_balance')| float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.power_balance_avg2
+        data:
+          value: "{{ (curr if curr < prev else (prev * (samples-1) + curr) / samples)| round(0) }}"
+
   - id: update_power_balance_avg
     initial_state: true
     trigger:
@@ -876,7 +863,7 @@ automation:
           # after charging to some target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption'    ) }}"
-          balance:  "{{ states('sensor.power_balance'        ) }}" # should not use input_number.power_balance_avg because feedback would be too slow
+          balance:  "{{ states('input_number.power_balance_avg2') }}"  # should not use power_balance_avg because feedback would be too slow (3 seconds)
           chg_pow:  "{{ states('sensor.power_charge_unstable') }}"
       - condition: "{{ is_number(balance) and states('switch.test_switch') != 'unavailable' and
                        is_number(chg_pow) }}"  # beware: after quick reload, it can take 30+ seconds for chg_pow to recover from 'unknown'
