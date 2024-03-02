@@ -5,7 +5,12 @@ default_config:
 frontend:
   themes: !include_dir_merge_named themes
 
-homeassistant: # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awareness/
+homeassistant:
+
+  # https://www.home-assistant.io/docs/configuration/packages/
+  packages: !include_dir_named packages  # regarding battery
+
+  # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awareness/
   time_zone: CET # Europe/Berlin without DST adaptations
 
   # https://www.home-assistant.io/docs/configuration/customizing-devices/
@@ -172,25 +177,6 @@ template:
           - unknown
           - unavailable
 
-  - sensor:
-    - name: "Battery SoC"  # using the Coulomb Counting method
-      unique_id: battery_soc_id
-      state_class: measurement
-      # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
-      availability: "{{ is_number(states('sensor.energy_charge_sum'   )) and
-                        is_number(states('sensor.energy_discharge_sum')) and
-                        states('input_number.last_charge_balance')|float(0) != -999999 }}"
-      state: >
-        {% set charge_sum = states('sensor.energy_charge_sum'   )|float %}
-        {% set dischg_sum = states('sensor.energy_discharge_sum')|float %}
-        {% set efficiency = states('input_number.storage_efficiency')|float %}
-        {% set last_bal   = states('input_number.last_charge_balance')  %}
-        {% set capacity   = states('input_number.battery_capacity')|int %}
-        {{ ((last_bal|float + ((efficiency * charge_sum - dischg_sum) * 1000)) / capacity * 100)|round(1) }}
-      device_class: battery
-      unit_of_measurement: "%"
-    # icon: mdi:battery-medium  # using automatic icon instead
-
 # prefer using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
 # report 'unknown' or 'unavailable' (value from the Shelly integration) if both sources do not yield a number
 mqtt:
@@ -240,11 +226,6 @@ mqtt:
       device_class: power
       state_class: measurement
 
-    - name: battery_voltage
-      unique_id: battery_voltage
-      # friendly_name: "Battery voltage"  # - stateless
-      state_topic: "dtu/116181851168/1/voltage"
-      unit_of_measurement: V
 
 # sensor: !include sensor.yaml
 sensor:
@@ -347,20 +328,6 @@ sensor:
 
   - name: power_production_sum
     source: sensor.power_production
-    platform: integration
-    unit_time: s  # leads to wrong warning, see https://github.com/home-assistant/core/issues/107223
-    round: 2
-    method: left
-
-  - name: power_charge_sum
-    source: sensor.power_charge
-    platform: integration
-    unit_time: s  # leads to wrong warning, see https://github.com/home-assistant/core/issues/107223
-    round: 2
-    method: left
-
-  - name: power_discharge_sum
-    source: sensor.power_discharge
     platform: integration
     unit_time: s  # leads to wrong warning, see https://github.com/home-assistant/core/issues/107223
     round: 2
@@ -537,63 +504,54 @@ utility_meter: # https://www.home-assistant.io/integrations/utility_meter/
     cron: "* * * * *"
 
 
-# (ab-)using input_number for defining global constants
-# https://community.home-assistant.io/t/create-a-constant/15686/21
-  storage_efficiency:  # overall storage efficiency: charging, storing, and discharging = AC output / AC input
-    initial: 0.80  # TODO update according to more precise measurement
-    min:  0.60
-    max:  1.00
-    step: 0.01
-    icon: mdi:battery-sync-outline
-  battery_capacity:  # nominal capacity in Wh
-    initial: 1320  # TODO update according to more precise measurement
-    min: 1000
-    max: 2600
+# defining the inputs before the automations such that they can be modified without restarting HA
+# https://www.home-assistant.io/integrations/input_boolean/
+# input_* does not allow setting a unique_id - bug report https://github.com/home-assistant/core/issues/109741
+input_boolean:
+  charge_enabled:
+    name: Charge enabled
+    # unique_id: charge_enabled_id
+    initial: "on"
+    icon: mdi:battery-arrow-up-outline
+  charge_logged:
+    name: Charge logged
+    # unique_id: charge_logged_id
+    icon: mdi:battery-arrow-up-outline
+  discharge_enabled:
+    name: Discharge enabled
+    # unique_id: discharge_enabled_id
+    initial: "on"
+    icon: mdi:battery-arrow-down-outline
+  discharge_logged:
+    name: Discharge logged
+    # unique_id: discharge_logged_id
+    icon: mdi:battery-arrow-down-outline
+
+input_number:
+  target_charge:
+    name: Target balance for charging
+    initial: 10
+    min: -50
+    max: 250
     step: 10
-    icon: mdi:battery-sync-outline
+    icon: mdi:battery-arrow-up-outline
+  target_discharge:
+    name: Target balance for discharging
+    initial: 20
+    min: -150
+    max: 50
+    step: 10
+    icon: mdi:battery-arrow-down-outline
 
-  last_voltage_at_rest:  # battery voltage on SoC update at rest, not having been (dis)charged for a while
-    initial: 0
-    min:  0
-    max: 60
-  last_soc_at_rest:  # battery SoC on SoC update at rest
-    initial: 0
+  energy_charge_last:
+    name: Last charge energy
     min: 0
-    max: 100
-
-  empty_battery:
-    initial: 23.1
-    min: 0
-    max: 100
-  low_battery:
-    initial: 24.3
-    min: 0
-    max: 100
-  near_battery: # nearly full (after charge)
-    initial: 26.9
-    min: 0
-    max: 100
-  full_battery:
-    initial: 28.9
-    min: 0
-    max: 100
-
-# (ab-)using input_{number,text} for remembering value in automation
-# https://community.home-assistant.io/t/why-the-heck-dont-we-have-global-variables/219671/86
-# https://community.home-assistant.io/t/remember-a-state-value-and-recall-it-later/35337/4
-# alternative would be: https://github.com/enkama/hass-variables
-  last_charge_balance: # when measuring stable battery voltage, in Wh
-    name: Last Balance Charge vs. Discharge
-    initial: -999999  # workaround for not being able to use 'unknown'
-    min: -999999
-    max: +999999
+    max: 999999
     mode: box
-
-  last_dis_charge_sum: # when updating battery SoC, in kWs
-    name: Last Charge + Discharge sum
-    initial: 0  # workaround for not being able to use 'unknown'
+  energy_discharge_last:
+    name: Last discharge energy
     min: 0
-    max: +999999
+    max: 999999
     mode: box
 
   power_balance_avg:
@@ -803,129 +761,3 @@ automation:
         data_template:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
-
-  - id: adapt_soc_at_rest
-    initial_state: true
-    trigger:
-      # must initialize after HA restart; make sure to do when battery voltage has become available
-      # https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger
-      - platform: numeric_state
-        entity_id:  sensor.power_balance  # anything that changes often
-        value_template: "{{ states('sensor.battery_voltage')|float(0) }}"
-        above: 0  # gets triggered also on quick reload
-        # inferior time-based alternative, requring uptime integration: https://www.home-assistant.io/integrations/uptime/
-        ## https://community.home-assistant.io/t/uptime-in-days-hours-and-minutes/180916/40
-        #value_template: "{{ as_timestamp(now()) - as_timestamp(states('sensor.uptime')) }}"
-        #above: 1 # at least one second after HA restart
-
-      # for determinining the battery SoC using the Open Circuit Voltage Method (OCV),
-      # continue only when battery has not been charged or discharged for a while
-      # battery may take some 3 minutes to recover stable voltage after being (dis)charged
-      # the official value-based trigger does not work reliably:
-    # - platform: numeric_state
-    #   entity_id:
-    #      - sensor.power_charge
-    #      - sensor.power_discharge
-    #   value_template: "{{ states('sensor.power_charge'   )|float(1) +
-    #                       states('sensor.power_discharge')|float(1) }}"
-    #   below: 1
-    #   for: "00:03:00"
-      # as a workaround, do the (dis)charge activity check ourselves:
-      - platform: time_pattern
-        minutes: "/3"
-    action:
-      - variables:
-          chg_pow : "{{ states('sensor.power_charge'             ) }}"
-          dis_pow : "{{ states('sensor.power_discharge'          ) }}"
-          chg_sum : "{{ states('sensor.power_charge_sum'         ) }}"
-          dis_sum : "{{ states('sensor.power_discharge_sum'      ) }}"
-      - condition : "{{ chg_pow|float(1) == 0 and dis_pow|float(1) == 0 and
-                        is_number(chg_sum) and is_number(dis_sum ) }}"
-      - variables:
-          old_sum : "{{ states('input_number.last_dis_charge_sum') }}"
-          new_sum : "{{ (chg_sum + dis_sum) / 1000                 }}"
-      - service: input_number.set_value
-        data:
-          entity_id: input_number.last_dis_charge_sum
-          value: "{{ new_sum }}"
-      - condition: "{{ new_sum|round(5) == old_sum|round(5) or old_sum == 0 }}"  # adapting also on HA restart
-      # end of workaround, doing the (dis)charge activity check ourselves
-
-      - variables:
-          charge_sum: "{{ states('sensor.energy_charge_sum'   ) }}"
-          dischg_sum: "{{ states('sensor.energy_discharge_sum') }}"
-          voltage   : "{{ states('sensor.battery_voltage'     ) }}"
-      - condition: "{{ is_number(charge_sum) and is_number(dischg_sum) and is_number(voltage) }}"
-      - variables:
-          old_bal:  "{{ states('input_number.last_charge_balance') }}"
-          old_soc:  "{{ states('sensor.battery_soc'              ) }}"
-          # https://community.home-assistant.io/t/noob-needs-help-to-convert-voltage-to-percentage/355021/12
-          # https://docs.google.com/spreadsheets/d/1SyzKUZ5_KxLB6megSLTXYv_1LlbcFqE4gxMgK8SrMvs/
-          # below voltage curve values assume 24 V LFP battery but are adapted via the nominalVoltage constant
-          soc: >
-            {% set nominalVoltage =                        24 %}
-            {% set volt = voltage|float / nominalVoltage * 24 %}
-            {% set curve = [
-                { "volt": 20.0, "percent":  0 },
-                { "volt": 22.4, "percent":  5 },
-                { "volt": 24.0, "percent":  9.5 },
-                { "volt": 25.2, "percent": 14 },
-                { "volt": 25.6, "percent": 20 },
-                { "volt": 25.8, "percent": 30 },
-                { "volt": 26.0, "percent": 40 },
-                { "volt": 26.1, "percent": 50 },
-                { "volt": 26.2, "percent": 60 },
-                { "volt": 26.4, "percent": 70 },
-                { "volt": 26.6, "percent": 80 },
-                { "volt": 26.8, "percent": 90 },
-                { "volt": 27.0, "percent": 99 },
-                { "volt": 27.6, "percent": 99.5 },
-                { "volt": 29.2, "percent":100 }
-              ]
-            %}
-            {% set minVolt = curve[0               ].volt %}
-            {% set maxVolt = curve[curve|length - 1].volt %}
-            {% if volt < minVolt %}
-              0
-            {% elif volt >= maxVolt %}
-              100
-            {% else %}
-              {% for i in range(curve|length - 1) %}
-                {% set v1 = curve[i    ].volt     %}
-                {% set p1 = curve[i    ].percent  %}
-                {% set v2 = curve[i + 1].volt     %}
-                {% set p2 = curve[i + 1].percent  %}
-                {% if v1 <= volt and volt < v2    %}
-                  {% set percent = p1 + (p2 - p1) * ((volt - v1) / (v2 - v1)) %}
-                    {{ percent|round(0) if percent < 99 else percent|round(1) }}
-                {% endif %}
-              {% endfor %}
-            {% endif %}
-      # prepare data for the Coulomb Counting method
-      # https://www.powertechsystems.eu/home/tech-corner/lithium-ion-state-of-charge-soc-measurement/
-          capacity  : "{{ states('input_number.battery_capacity'  )|int }}"
-          efficiency: "{{ states('input_number.storage_efficiency')|float }}"
-          offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
-          new_bal   : "{{ soc / 100 * capacity - offset }}"
-      - if: "{{ new_bal|round(3) != old_bal|float(999999)|round(3) }}"
-        then:
-          - service: input_number.set_value
-            data:
-              entity_id: input_number.last_charge_balance
-              value: "{{ new_bal }}"
-          - delay: "00:00:01"  # give sensor.battery_soc a little time to update itself
-          - service: system_log.write
-            data:
-              message: "{{ 'battery SoC adapted from ' }}{{ old_soc }}{{ ' to ' }}{{ states('sensor.battery_soc') }}{{ ' %; voltage: ' }}{{ voltage }}{{
-                        ' V; charge_balance updated from ' }}{{ old_bal|round(2) if is_number(old_bal) else old_bal }}{{
-                                                    ' to ' }}{{ new_bal|round(2) if is_number(new_bal) else new_bal }}{{ ' Wh ' }}"
-              logger: battery
-              level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
-      - service: input_number.set_value
-        data:
-          entity_id: input_number.last_voltage_at_rest
-          value: "{{ voltage }}"
-      - service: input_number.set_value
-        data:
-          entity_id: input_number.last_soc_at_rest
-          value: "{{ states('sensor.battery_soc') }}"
