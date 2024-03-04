@@ -902,7 +902,7 @@ automation:
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
-  # control battery discharging such that exactly any missing power is compensated
+  # control battery discharging with the goal that exactly any missing power is compensated
   - id: control_battery_discharging
     initial_state: true
     trigger:
@@ -911,28 +911,32 @@ automation:
 #        not_to:  # maybe no more needed
 #          - unavailable
       - platform: time_pattern
-        seconds: "/4"  # unfortunately, inverter reacts slowly
+        seconds: "/4"  # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often
     action:
       - variables:
+          threshold: "{{ 2 }}"
           voltage:  "{{ states('sensor.battery_voltage')|float(0) }}"
           low_batt: "{{ voltage < 24 }}"
           cons:     "{{ states('sensor.power_consumption') }}"
-          charging: "{{ states('sensor.power_charge'    )|float(1) >= 1 }}"
-          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= 1 }}"
-          balance:  "{{ states('sensor.power_balance'   )|float(0) }}"
+          charging: "{{ states('sensor.power_charge'    )|float(1) >= threshold }}"
+          disc_ing: "{{ states('sensor.power_discharge' )|float(1) >= threshold }}"
+          balance:  "{{ states('sensor.power_balance'   )|float(0) }}" # TODO use average over the last seconds
           target:   "{{ states('input_number.target_discharge') }}"
           min_rate: "{{  2 }}"
-          max_rate: "{{ 30 }}"
-          gradient: "{{ 0 if charging else ((balance - target) * 0.05) | int }}"
-          delta:    "{{ max(-10, min(10, gradient)) }}"
-          old_rate: "{{ states('sensor.discharge_rate')|int(0) }}"
+          max_rate: "{{ 26 }}"  # max useful value for HM-1500 with just one input used
+          max_delta: "{{ (max_rate - min_rate) / 3 }}"
+          gradient: "{{ ((balance - target) * 0.05) | int }}"
+          delta:    "{{ max(-max_delta, min(max_delta, gradient)) }}"
+          old_rate: "{{ max(min_rate, states('sensor.discharge_rate')|int(0)) }}"
           new_rate: "{{ max(0, min(max_rate, old_rate + delta)) }}"
           low_rate: "{{ new_rate < min_rate }}"
-          turn_off: "{{ not states('input_number.discharge_enabled') or charging or low_batt or low_rate }}"
-          turn_on:  "{{ not disc_ing and not low_rate }}"
+          turn_off: "{{ states('input_boolean.discharge_enabled') == 'off' or charging or low_batt or low_rate }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
+          - condition: numeric_state
+            entity_id: sensor.power_discharge
+            above: 2  # threshold
           - service: button.press
             target:
               entity_id: button.hm_1500_turn_inverter_off
@@ -945,7 +949,7 @@ automation:
                   entity_id: number.hm_1500_limit_nonpersistent_relative
                 data:
                   value: "{{ max(1,new_rate) }}"
-          - if: "{{ turn_on }}"
+          - if: "{{ not disc_ing }}"
             then:
               - service: button.press
                 target:
@@ -955,8 +959,8 @@ automation:
         state: "on"
       - service: system_log.write
         data:
-          message: "{{ 'battery: %sV consumption: %s balance: %s discharge old: %s delta: %s new: %s' %
-                       (voltage, cons | float(0) | round(0), balance | float(0) | round(0), old_rate, delta,
-                       'off' if turn_off else 'max' if new_rate == max_rate else new_rate) }}"
-          logger: discharge
+          message: "{{ 'consumption: %4d balance: %+4d dischg old: %3d delta: %3d new: %3s / %3d, battery: %sV ' %
+                       (cons | int(0), balance | int(0), old_rate, delta,
+                       'off' if turn_off else 'max' if new_rate == max_rate else new_rate, max_rate, voltage) }}"
+          logger: dischg
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
