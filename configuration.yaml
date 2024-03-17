@@ -599,6 +599,24 @@ input_number:
     max: +999999
     mode: box
 
+  discharge_age:
+    name: Seconds since discharge adaptation
+    initial: 0
+    min: 0
+    max: +999999
+
+  discharge_power:
+    name: Last actual discharge power
+    initial: 0
+    min: 0
+    max: 1000
+
+  discharge_change:
+    name: Discharge power change expected
+    initial: 0  # 0 : no change expected, 1: should change, 2: recent change should settle
+    min: 0
+    max: 2
+
   discharge_rate:
     name: Inverter limit last set for discharging
     initial: 0
@@ -1025,15 +1043,17 @@ automation:
   # control battery discharging with the goal that exactly any missing power is compensated
   - id: control_battery_discharging
     initial_state: true
-#   condition: "{{ is_number(number.hm_300_limit_nonpersistent_relative) }}"  # does not work: UndefinedError: 'number' is undefined
     trigger:
-#      - platform: state
-#        entity_id: sensor.power_balance
-#        not_to:  # maybe no more needed
-#          - unavailable
       - platform: time_pattern
-        seconds: "/13"  # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often
+        seconds: "/1"
     action:
+      - variables:
+          age: "{{ states('input_number.discharge_age')|int + 1 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.discharge_age
+        data:
+          value: "{{ age }}"
       - variables:
           threshold: "{{ 2 }}"  # in W for detecting current charging/discharging
           voltage:  "{{ states('sensor.battery_voltage') }}"
@@ -1042,11 +1062,28 @@ automation:
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'   )|float(1) >= threshold }}"
           balance:  "{{ states('input_number.power_balance_avg') }}"
+          change  : "{{ states('input_number.discharge_change' ) }}" # 0 : no change expected, 1: should change, 2: recent change should settle
+          last_pow: "{{ states('input_number.discharge_power'  ) }}"
           disc_pow: "{{ states('sensor.power_discharge'        ) }}"
+          same_pow: "{{ (disc_pow|float(-1) - last_pow|float)|abs < 1 }}"
         # prevDisc: "{{ states('sensor.discharge_rate'         ) }}" # the value reported via DTU
           old_disc: "{{states('input_number.discharge_rate'    ) }}" # this is what we actually set
       - condition: "{{ is_number(balance) and is_number(disc_pow) and is_number(old_disc)
                        and states('sensor.hm_300_voltage') != 'unavailable' }}"  # battery is connected
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.discharge_power
+        data:
+          value: "{{ disc_pow }}"
+      - if: "{{ change == 1 and not same_pow }}" # should change
+        then:
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.discharge_change
+            data:
+              value: "{{ 2 }}" # recent change should settle
+      - condition: "{{ change == 0 or (change == 2 and same_pow) or age > 20 }}"  # continue when no change expected or an expected change happened or after timeout
+      # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often than about 12 seconds
 
       - variables:
           disc_ing: "{{ disc_pow >= threshold       }}"
@@ -1114,9 +1151,19 @@ automation:
           rate_min: "{{ new_rate <= min_eff }}"
           disabled: "{{ states('input_boolean.discharge_enabled') == 'off' }}"
           turn_off: "{{ disabled or charging or low_batt or rate_min }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.discharge_age
+        data:
+          value: "{{ 0 }}"
       - if: "{{ turn_off }}"
         then:
           # perform any changes only when needed
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.discharge_change
+            data:
+              value: "{{ 1 if disc_ing else 0 }}" # 0 : no change expected, 1: should change
           - if: "{{ disc_ing }}"
             then:
              # https://www.home-assistant.io/integrations/switch/
@@ -1143,6 +1190,11 @@ automation:
                     data:
                       value: "{{ min_rate }}"
         else:  # further actions only if inverter should not be off
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.discharge_change
+            data:
+              value: "{{ 1 if new_rate != old_disc else 0 }}"
           # set new rate if needed before maybe turning on
           - if: "{{ new_rate != old_disc }}"
             then:
