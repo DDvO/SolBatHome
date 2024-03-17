@@ -616,6 +616,9 @@ input_text:
     name: Charging last turned off
     initial: 0001-01-01 00:00:00+00:00
 
+  charge_reason:
+    name: Charging reason
+
 
 notify: # https://www.home-assistant.io/integrations/file/
 
@@ -996,15 +999,23 @@ automation:
                 data:
                   entity_id: input_text.charging_last_turned_on
                   value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
-      - condition: "{{ states('input_boolean.charge_logged') == 'on' or empty_batt }}"
+      - variables:
+          last_reason: "{{ states('input_text.charge_reason') }}"
+          reason: "{{ 'disabled' if disabled else ('%s battery' % ('full' if is_number(voltage) else 'no')) if full_batt else
+                      'still discharging' if disc_ing else 'at min and was charging for > 2 minutes' if long_min else
+                      '..' if delta|abs <= 0.5 or new_rate == max_rate else '' }}"
+      - service: input_text.set_value
+        data:
+          entity_id: input_text.charge_reason
+          value: "{{ reason }}"
+      - condition: "{{ (states('input_boolean.charge_logged') == 'on' and (reason == '' or reason != last_reason)) or empty_batt }}"
       - service: system_log.write
         data:
           message: "{{ 'cons: %4d bal: %+5d charge pow: %3d tgt: %+5d rate old: %3d delta: %+4d dir: %3d new: %3s / %3d%s' %
                     (cons | int(0), balance, chg_pow, tgtPower, old_rate, delta, dir_rate,
                     'off' if turn_off else 'min' if new_rate <= min_rate else
-                    'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else new_rate, max_rate,
-                    ' disabled' if disabled else ('%s battery' % ('full' if is_number(voltage) else 'no')) if full_batt else
-                    ' still discharging' if disc_ing else ' at min and was charging for > 2 minutes' if long_min else '') }}"
+                    'max in emergency: empty battery' if empty_batt else 'max' if new_rate == max_rate else '%3d' % new_rate,
+                    max_rate, '' if reason == '' else ' %s' % reason) }}"
           logger: charge
           level: critical  # unfortunately, cannot use 'debug' here as this level is not shown by default
 
