@@ -43,7 +43,7 @@ input_number:
     max: 60
     step: 0.1
   full_batt_v:
-    initial: 27.7
+    initial: 29.2
     min: 25
     max: 60
     step: 0.1
