@@ -83,6 +83,12 @@ input_number:
     max: +999999
     mode: box
 
+input_text:
+
+  dis_charge_last_active:
+    name: Last charge or discharge activity
+    initial: 0001-01-01 00:00:00+00:00
+
 
 mqtt:
   sensor:
@@ -161,7 +167,7 @@ automation:
     #   for: "00:03:00"
       # as a workaround, do the (dis)charge activity check ourselves:
       - platform: time_pattern
-        minutes: "/3"
+        seconds: "/10"
     action:
       - variables:
           chg_pow : "{{ states('sensor.power_charge'             ) }}"
@@ -173,11 +179,19 @@ automation:
       - variables:
           old_sum : "{{ states('input_number.last_dis_charge_sum') }}"
           new_sum : "{{ (chg_sum + dis_sum) / 1000                 }}"
+          inactive: "{{ new_sum|round(5) == old_sum|round(5) or old_sum == 0 }}"  # also on HA restart
       - service: input_number.set_value
         data:
           entity_id: input_number.last_dis_charge_sum
           value: "{{ new_sum }}"
-      - condition: "{{ new_sum|round(5) == old_sum|round(5) or old_sum == 0 }}"  # adapting also on HA restart
+      - if: "{{ not inactive }}"
+        then:
+          - service: input_text.set_value
+            data:
+              entity_id: input_text.dis_charge_last_active
+              value: "{{ now().strftime('%Y-%m-%d %H:%M:%S%z') }}"
+      - condition: "{{ inactive and
+                       now() - as_datetime(states('input_text.dis_charge_last_active' )) > timedelta(minutes=3) }}"
       # end of workaround, doing the (dis)charge activity check ourselves
 
       - variables:
