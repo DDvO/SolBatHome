@@ -4,14 +4,21 @@ input_number:
 # https://community.home-assistant.io/t/create-a-constant/15686/21
 
   storage_efficiency:  # overall storage efficiency: charging, storing, and discharging = AC output / AC input
-    initial: 0.80  # TODO update according to more precise measurement
+    initial: 0.75  # TODO update according to more precise measurement
     min:  0.60
     max:  1.00
     step: 0.01
     icon: mdi:battery-sync-outline
 
-  battery_capacity:  # nominal capacity in Wh after discharge at AC level
-    initial: 2320  # TODO update according to more precise measurement
+  discharge_efficiency:
+    initial: 0.935  # TODO update according to more precise measurement
+    min:  0.80
+    max:  1.00
+    step: 0.01
+    icon: mdi:battery-arrow-down-outline
+
+  battery_capacity:  # nominal capacity in Wh (at DC level)
+    initial: 2500  # TODO update according to more precise measurement
     min: 1000
     max: 2600
     step: 10
@@ -129,9 +136,10 @@ template:
         {% set charge_sum = states('sensor.energy_charge_sum'   )|float %}
         {% set dischg_sum = states('sensor.energy_discharge_sum')|float %}
         {% set efficiency = states('input_number.storage_efficiency')|float %}
+        {% set dis_eff    = states('input_number.discharge_efficiency')|float %}
         {% set last_bal   = states('input_number.last_charge_balance')  %}
         {% set capacity   = states('input_number.battery_capacity')|int %}
-        {{ ((last_bal|float + ((efficiency * charge_sum - dischg_sum) * 1000)) / capacity * 100)|round(1) }}
+        {{ ((last_bal|float + ((efficiency * charge_sum - dischg_sum) / dis_eff * 1000)) / capacity * 100)|round(1) }}
       device_class: battery
       unit_of_measurement: "%"
     # icon: mdi:battery-medium  # using automatic icon instead
@@ -250,7 +258,8 @@ automation:
       # https://www.powertechsystems.eu/home/tech-corner/lithium-ion-state-of-charge-soc-measurement/
           capacity  : "{{ states('input_number.battery_capacity'  )|int }}"
           efficiency: "{{ states('input_number.storage_efficiency')|float }}"
-          offset    : "{{ (efficiency * charge_sum - dischg_sum) * 1000 }}"
+          dis_eff   : "{{ states('input_number.discharge_efficiency')|float }}"
+          offset    : "{{ (efficiency * charge_sum - dischg_sum) / dis_eff * 1000 }}"
           new_bal   : "{{ soc / 100 * capacity - offset }}"
       - if: "{{ new_bal|round(3) != old_bal|float(999999)|round(3) }}"
         then:
