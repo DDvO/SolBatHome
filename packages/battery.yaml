@@ -212,27 +212,23 @@ automation:
           old_soc:  "{{ states('sensor.battery_soc'              ) }}"
 
           # https://community.home-assistant.io/t/noob-needs-help-to-convert-voltage-to-percentage/355021/12
-          # https://docs.google.com/spreadsheets/d/1SyzKUZ5_KxLB6megSLTXYv_1LlbcFqE4gxMgK8SrMvs/
+          # https://lifepo4.com.au/lifepo4-soc-and-everything-else-you-need-to-know/
           # below voltage curve values assume 24 V LFP battery but are adapted via the nominalVoltage constant
           soc: >
             {% set nominalVoltage =                        24 %}
             {% set volt = voltage|float / nominalVoltage * 24 %}
             {% set curve = [
-                { "volt": 20.0, "percent":  0 },
-                { "volt": 22.4, "percent":  5 },
-                { "volt": 24.0, "percent":  9.5 },
+                { "volt": 20.8, "percent":  0 },
+                { "volt": 24.8, "percent":  9 },
                 { "volt": 25.2, "percent": 14 },
-                { "volt": 25.6, "percent": 20 },
-                { "volt": 25.8, "percent": 30 },
-                { "volt": 26.0, "percent": 40 },
-                { "volt": 26.1, "percent": 50 },
-                { "volt": 26.2, "percent": 60 },
-                { "volt": 26.4, "percent": 70 },
-                { "volt": 26.6, "percent": 80 },
+                { "volt": 25.6, "percent": 17 },
+                { "volt": 25.8, "percent": 20 },
+                { "volt": 26.0, "percent": 30 },
+                { "volt": 26.39,"percent": 40 },
+                { "volt": 26.42,"percent": 70 },
                 { "volt": 26.8, "percent": 90 },
-                { "volt": 27.0, "percent": 99 },
-                { "volt": 27.6, "percent": 99.5 },
-                { "volt": 29.2, "percent":100 }
+                { "volt": 27.6, "percent": 99 },
+                { "volt": 28.0, "percent":100 }
               ]
             %}
             {% set minVolt = curve[0               ].volt %}
