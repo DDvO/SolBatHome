@@ -257,7 +257,7 @@ automation:
           dis_eff   : "{{ states('input_number.discharge_efficiency')|float }}"
           offset    : "{{ (efficiency * charge_sum - dischg_sum) / dis_eff * 1000 }}"
           new_bal   : "{{ soc / 100 * capacity - offset }}"
-      - if: "{{ new_bal|round(3) != old_bal|float(999999)|round(3) }}"
+      - if: "{{ (soc <= 40 or soc >= 70) and new_bal|round(3) != old_bal|float(999999)|round(3) }}"
         then:
           - service: input_number.set_value
             data:
