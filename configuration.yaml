@@ -729,6 +729,10 @@ automation:
     trigger:
       - platform: time_pattern
         seconds: "/1"
+# does not work (reliably), neither other state-based triggers using sensor.shelly3em_channel_a_power etc.:
+#      - platform: state
+#        entity_id: sensor.3em_uptime
+#        to:
     action:
       - variables: # https://www.home-assistant.io/docs/scripts/#variables
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
