@@ -750,7 +750,7 @@ automation:
           # https://www.home-assistant.io/integrations/system_log/
           - service: system_log.write
             data:
-              message: "{{ 'per-channel value(s) of power_balance not available:' }} {{ powA }} {{ powB }} {{ powC }}"
+              message: "{{ 'per-channel value(s) of power balance not available:' }} {{ powA }} {{ powB }} {{ powC }}"
               logger: home
               level: warning
       # warn on consumption appearing non-positive (typically when charging bounced up while balance has not been updated yet)
@@ -758,7 +758,7 @@ automation:
         then:
           - service: system_log.write
             data:
-              message: "{{ 'power_consumption is not positive:' }} {{ cons }}"
+              message: "{{ 'power consumption is not positive:' }} {{ cons }}"
               logger: home
               level: warning
       - service: notify.power_data
