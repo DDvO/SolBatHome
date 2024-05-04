@@ -599,6 +599,70 @@ input_number:
     max: +999999
     mode: box
 
+  power_balance_smoothened:
+    name: Power Balance Smoothened
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
+
+  last_channel_a_power:
+    name: Last channel A power
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
+
+  last_channel_b_power:
+    name: Last channel B power
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
+
+  last_channel_c_power:
+    name: Last channel C power
+    initial: 0
+    min: -999999
+    max: +999999
+    mode: box
+
+  last_channel_a_power_factor:
+    name: Last channel A power factor
+    initial: 0
+    min: -1
+    max: 1
+
+  last_channel_b_power_factor:
+    name: Last channel B power factor
+    initial: 0
+    min: -1
+    max: 1
+
+  last_channel_c_power_factor:
+    name: Last channel C power factor
+    initial: 0
+    min: -1
+    max: 1
+
+  channel_a_power_repeat_len:
+    name: channel A power repeat length
+    initial: 0
+    min: 0
+    max: 2
+
+  channel_b_power_repeat_len:
+    name: channel B power repeat length
+    initial: 0
+    min: 0
+    max: 2
+
+  channel_c_power_repeat_len:
+    name: channel C power repeat length
+    initial: 0
+    min: 0
+    max: 2
+
   discharge_age:
     name: Seconds since discharge adaptation
     initial: 0
@@ -900,6 +964,95 @@ automation:
         data:
           value: "{{ (curr if curr < prev else (prev * (samples-1) + curr) / samples)| round(0) }}"
 
+  # filter out from power balance used for (dis)charge control the inductive power spikes on fridge compressor startup
+  - id: update_power_balance_smoothened
+    initial_state: true
+    trigger:
+      - platform: time_pattern
+        seconds: "/1"
+    action:
+      - variables:
+          powA:      "{{ states('sensor.shelly3em_channel_a_power'       ) }}"
+          powB:      "{{ states('sensor.shelly3em_channel_b_power'       ) }}"
+          powC:      "{{ states('sensor.shelly3em_channel_c_power'       ) }}"
+          pfA:       "{{ states('sensor.shelly3em_channel_a_power_factor') }}"
+          pfB:       "{{ states('sensor.shelly3em_channel_b_power_factor') }}"
+          pfC:       "{{ states('sensor.shelly3em_channel_c_power_factor') }}"
+          powA_last: "{{ states('input_number.last_channel_a_power'       ) }}"
+          powB_last: "{{ states('input_number.last_channel_b_power'       ) }}"
+          powC_last: "{{ states('input_number.last_channel_c_power'       ) }}"
+          pfA_last:  "{{ states('input_number.last_channel_a_power_factor') }}"
+          pfB_last:  "{{ states('input_number.last_channel_b_power_factor') }}"
+          pfC_last:  "{{ states('input_number.last_channel_c_power_factor') }}"
+          powA_len:  "{{ states('input_number.channel_a_power_repeat_len' ) }}"
+          powB_len:  "{{ states('input_number.channel_b_power_repeat_len' ) }}"
+          powC_len:  "{{ states('input_number.channel_c_power_repeat_len' ) }}"
+          power_threshold:  "{{  300 }}"
+          factor_threshold: "{{ 0.02 }}"
+          factor_near_1:    "{{ 0.99 }}"
+      - condition: "{{ is_number(powA) and is_number(powB) and is_number(powC) and
+                       is_number( pfA) and is_number( pfB) and is_number( pfC) }}"
+      - variables:
+          keepA: "{{ powA_len < 2 and powA >= powA_last + power_threshold * (2 - powA_len) / 2
+                     and pfA <= factor_near_1 and (pfA - pfA_last)|abs >= factor_threshold}}"
+          keepB: "{{ powB_len < 2 and powB >= powB_last + power_threshold * (2 - powB_len) / 2
+                     and pfB <= factor_near_1 and (pfB - pfB_last)|abs >= factor_threshold }}"
+          keepC: "{{ powC_len < 2 and powC >= powC_last + power_threshold  * (2 - powC_len) / 2
+                     and pfC <= factor_near_1 and (pfC - pfC_last)|abs >= factor_threshold }}"
+          powA_smoothened: "{{ powA_last if keepA else powA }}"
+          powB_smoothened: "{{ powB_last if keepB else powB }}"
+          powC_smoothened: "{{ powC_last if keepC else powC }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_a_power
+        data:
+          value: "{{ powA_smoothened }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_a_power_factor
+        data:
+          value: "{{ pfA_last if keepA else pfA }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.channel_a_power_repeat_len
+        data:
+          value: "{{ powA_len + 1 if keepA else 0 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_b_power
+        data:
+          value: "{{ powB_smoothened }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_b_power_factor
+        data:
+          value: "{{ pfB_last if keepB else pfB }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.channel_b_power_repeat_len
+        data:
+          value: "{{ powB_len + 1 if keepB else 0 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_c_power
+        data:
+          value: "{{ powC_smoothened }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.last_channel_c_power_factor
+        data:
+          value: "{{ pfC_last if keepC else pfC }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.channel_c_power_repeat_len
+        data:
+          value: "{{ powC_len + 1 if keepC else 0 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.power_balance_smoothened
+        data:
+          value: "{{ powA_smoothened + powB_smoothened + powC_smoothened }}"
+
   # control battery charging with the goal that exactly any excess power is used for this
   # would be nice, but can only switch on and off: https://edistechlab.com/ein-thermostat-in-home-assistant-erstellen/?v=3a52f3c22ed6
   - id: control_battery_charging
@@ -918,7 +1071,7 @@ automation:
           # after charging to some target voltage, voltage drops, then battery is charged further where voltage increases quickly again, etc.
           threshold : "{{ 2 }}"
           cons:     "{{ states('sensor.power_consumption'    ) }}"
-          balance:  "{{ states('input_number.power_balance_avg2') }}"  # should not use power_balance_avg because feedback would be too slow (3 seconds)
+          balance:  "{{ states('input_number.power_balance_smoothened') }}"
           chg_pow:  "{{ states('sensor.power_charge_unstable') }}"
       - condition: "{{ is_number(balance) and states('switch.test_switch') != 'unavailable' and
                        is_number(chg_pow) }}"  # beware: after quick reload, it can take 30+ seconds for chg_pow to recover from 'unknown'
@@ -1065,7 +1218,7 @@ automation:
           # after discharging to some target voltage, voltage recovers, then battery is discharged further where voltage decreases quickly again, etc.
           cons:     "{{ states('sensor.power_consumption') }}"
           charging: "{{ states('sensor.power_charge'   )|float(1) >= threshold }}"
-          balance:  "{{ states('input_number.power_balance_avg') }}"
+          balance:  "{{ states('input_number.power_balance_smoothened') }}"
           change  : "{{ states('input_number.discharge_change' ) }}" # 0 : no change expected, 1: should change, 2: recent change should settle
           last_pow: "{{ states('input_number.discharge_power'  ) }}"
           disc_pow: "{{ states('sensor.power_discharge'        ) }}"
