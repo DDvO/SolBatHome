@@ -19,11 +19,20 @@ lovelace:
 
 homeassistant:
 
+  # https://community.home-assistant.io/t/downgrade-from-2024-1-0-docker-compose/666197/3
+
   # https://www.home-assistant.io/docs/configuration/packages/
   packages: !include_dir_named packages  # regarding battery, power balance, etc.
 
   # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awareness/
   time_zone: CET # Europe/Berlin without DST adaptations
+
+  # will be needed from 2024.6:
+  # https://www.reddit.com/r/homeassistant/comments/1dhw16z/write_to_file_using_notify_from_20246/
+  allowlist_external_dirs: # relative paths seem to be based on "/config", which may be mapped to some host file system location
+    - "/config/log"
+    - "log"
+    - "."
 
   # https://www.home-assistant.io/docs/configuration/customizing-devices/
   customize:
@@ -629,8 +638,8 @@ input_text:
     name: Discharging reason
 
 
+# beware: from 2024.6, this will be ingored - see also https://community.home-assistant.io/t/notify-send-message-in-2024-6/737177/39
 notify: # https://www.home-assistant.io/integrations/file/
-
   - name: power_data
     platform: file
     filename: power.csv
