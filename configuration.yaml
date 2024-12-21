@@ -948,7 +948,7 @@ automation:
           long_on:  "{{ now() - as_datetime(states('input_text.charging_last_turned_on' )) > timedelta(minutes=2) }}"
           long_off: "{{ now() - as_datetime(states('input_text.charging_last_turned_off')) > timedelta(seconds=5) }}"
           long_min: "{{ rate_min and long_on }}"
-          turn_off: "{{ disabled or full_batt or disc_ing or long_min }}"
+          turn_off: "{{ disabled or full_batt or (disc_ing and not empty_batt) or long_min }}"
       - if: "{{ turn_off }}"
         then:
           # https://www.home-assistant.io/integrations/switch/
