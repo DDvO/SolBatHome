@@ -1274,7 +1274,7 @@ automation:
           expect_prod: "{{ prod_next * default_cal                                }}"  # based on forecast, defaulting to average daily production
           efficiency : "{{ states('input_number.storage_efficiency')|float        }}"
           expect_chg : "{{ max(0, expect_prod - avg_owncons) * 1000
-                           * efficiency / capacity * 100                          }}"  # energy in Wh expected to be added to the battery charge today
+                           * efficiency / capacity * 100                          }}"  # SoC expected to be added to the battery charge during day after next sunrise
           tgt_soc    : "{{ max(low_soc, part_soc - expect_chg)                    }}"  # target battery SoC to reach by sunrise, for at least partial SoC during day
           tgt_dischg : "{{ max(0, (soc|float(100) - tgt_soc) / 100 * capacity)    }}"  # if SoC not avaialable, assume full
           tgt_hours  : >                                                   # likely hours of discharge to reach target SoC by sunrise, based on typical consumption
