@@ -204,6 +204,17 @@ template:
           - unknown
           - unavailable
 
+  - sensor:
+      - name: "Target SoC"
+        unit_of_measurement: "%"
+        state: >
+          {{ states('input_number.situation_tgt_soc')|int }}
+  - sensor:
+      - name: "Target hours * 10"
+        unit_of_measurement: "%"
+        state: >
+          {{ states('input_number.situation_tgt_hours')|float * 10 }}
+
 # prefer using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
 # report 'unknown' or 'unavailable' (value from the Shelly integration) if both sources do not yield a number
 mqtt:
@@ -594,6 +605,17 @@ input_number:
     name: Last discharge energy
     min: 0
     max: 999999
+    mode: box
+
+  situation_tgt_soc:
+    name: Target SoC
+    min: 0
+    max: 100
+    mode: box
+  situation_tgt_hours:
+    name: Target hours
+    min: 0
+    max: 20 # depends on capacity and typical (most overnight) load
     mode: box
 
   discharge_age:
@@ -1406,6 +1428,17 @@ automation:
           # - service: light.turn_off
           #   target:
           #     entity_id: light.discharge_control
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.situation_tgt_soc
+        data:
+          value: "{{ tgt_soc }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.situation_tgt_hours
+        data:
+          value: "{{ tgt_hours }}"
       - condition: "{{ states('input_boolean.situation_logged') == 'on' }}"
       - service: system_log.write
         data:
