@@ -212,7 +212,7 @@ mqtt:
     - name: power_production_unstable
       unique_id: power_production_unstable
       # friendly_name: "Power production - stateless"
-      state_topic: "pv1/status/switch:0"
+      state_topic: "pv1/status/switch:0" # TODO this sensor yields 'unavailable' whenever this MQTT topic is not available, so below fallback does not work
       value_template: >-
         {% set val1 = value_json['apower'] %}
         {% set val2 = states('sensor.pv1_power') %}
@@ -229,7 +229,7 @@ mqtt:
     - name: power_charge_unstable  # beware: after quick reload, it can take 30+ seconds to recover from 'unknown'
       unique_id: power_charge_unstable
       # friendly_name: "Charge power - stateless"
-      state_topic: "pm1/status/switch:0"
+      state_topic: "pm1/status/switch:0" # TODO this sensor yields 'unavailable' whenever this MQTT topic is not available, so below fallback does not work
       value_template: >-
         {% set val1 = value_json['apower'] %}
         {% set val2 = states('sensor.pm1_power') %}
@@ -243,7 +243,7 @@ mqtt:
     - name: power_discharge_unstable
       unique_id: power_discharge_unstable
       # friendly_name: "Discharge power - stateless"
-      state_topic: "pm2/status/switch:0"
+      state_topic: "pm2/status/switch:0" # TODO this sensor yields 'unavailable' whenever this MQTT topic is not available, so below fallback does not work
       value_template: >-
         {% set val1 = value_json['apower'] %}
         {% set val2 = states('sensor.pm2_power') %}
