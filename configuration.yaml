@@ -1049,7 +1049,7 @@ automation:
       # unfortunately, Hoymiles inverter reacts slowly and partly even erratically if changes requested more often than about 12 seconds
 
       - variables:
-          disc_ing: "{{ disc_pow >= threshold       }}"
+          disc_ing: "{{ disc_pow >= threshold       }}" # TODO should not constantly block charging (e.g. due to inverter malfunction)
           target:   "{{ states('input_number.target_discharge') }}"
         # absolute values for discharge control would be more precise, but Hoymiles latency is way too high when using them
           min_rate: "{{  4 }}"  # percent value for HM-300, min stable would be 3, min preventing "Invalid value" MQTT error is 4
