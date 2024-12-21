@@ -781,7 +781,7 @@ automation:
         then:
           - service: system_log.write
             data:
-              message: "{{ 'power consumption is not positive:' }} {{ cons }}"
+              message: "{{ 'power consumption is not positive:' }} {{ cons }} {{ states('sensor.power_production') }} {{ states('sensor.pv1_power') }}"   
               logger: home
               level: warning
       - service: notify.power_data
