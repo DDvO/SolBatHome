@@ -51,6 +51,8 @@ homeassistant:
         icon_color: 'red'
 
 http:
+  # SSL certificate and key paths are relative to the Home Assistant configuration directory
+  # See: https://www.home-assistant.io/docs/ecosystem/certificates/
   ssl_certificate: cert.pem
   ssl_key: key.pem
 
@@ -258,7 +260,7 @@ sensor:
 # - platform: template # https://www.home-assistant.io/integrations/template/
 #   sensors:
 #
-#     # workaround for former issue with power production sensor, leading to yields unavailable untility_metervalue with unknown meaturement unit
+#     # workaround for former issue with power production sensor, leading to yields unavailable untility_metervalue with unknown measurement unit
 #     energy0_production_hourly:
 #       friendly_name: "Energy Production Hourly (workaround)"
 #       device_class: energy
