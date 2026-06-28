@@ -255,12 +255,6 @@ mqtt:
       device_class: power
       state_class: measurement
 
-    - name: discharge_rate
-      unique_id: discharge_rate
-      # friendly_name: "Discharge rate - stateless"
-      state_topic: "dtu/112183822756/status/limit_relative"  # includes serial number of HM-300
-      unit_of_measurement: '%'
-
 # sensor: !include sensor.yaml
 sensor:
   # need to restart HA for modifications of this list to become effective

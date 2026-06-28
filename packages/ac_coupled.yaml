@@ -1,3 +1,6 @@
+# efficient charge and discharge control of AC-coupled battery
+# relies on various elements defined in battery.yaml
+
 template:
 
   - sensor:
@@ -10,6 +13,14 @@ template:
         unit_of_measurement: "%"
         state: >
           {{ states('input_number.situation_tgt_hours')|float * 10 }}
+
+mqtt:
+  sensor:
+    - name: discharge_rate
+      unique_id: discharge_rate
+      # friendly_name: "Discharge rate - stateless"
+      state_topic: "dtu/112183822756/status/limit_relative"  # includes serial number of HM-300
+      unit_of_measurement: '%'
 
 # defining the inputs before the automations such that they can be modified without restarting HA
 # https://www.home-assistant.io/integrations/input_boolean/
