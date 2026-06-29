@@ -618,8 +618,10 @@ automation:
             target:
               entity_id: input_boolean.charge_enabled
           - condition: "{{ situation != 'any' }}"
-          - service: notify.battery_data
-            data_template:
+          - action: notify.send_message
+            target:
+              entity_id: notify.battery_data  # used for high-level battery status logging by situation
+            data:
               message: "{{ '%s,0    ,%5.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
           - service: system_log.write
             data:
@@ -649,8 +651,10 @@ automation:
         #     - delay: "00:01:00"  # give battery some rest, such that voltage settles
           # input_boolean.discharge_enabled is handled further below
           - condition: "{{ situation != 'any' }}"
-          - service: notify.battery_data
-            data_template:
+          - action: notify.send_message
+            target:
+              entity_id: notify.battery_data
+            data:
               message: "{{ '%s,%5.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
           - service: system_log.write
             data:
