@@ -27,10 +27,11 @@ homeassistant:
   # https://www.home-assistant.io/blog/2015/05/09/utc-time-zone-awareness/
   time_zone: CET # Europe/Berlin without DST adaptations
 
-  # will be needed from 2024.6:
+  # needed since 2024.6:
   # https://www.reddit.com/r/homeassistant/comments/1dhw16z/write_to_file_using_notify_from_20246/
   allowlist_external_dirs: # relative paths seem to be based on "/config", which may be mapped to some host file system location
     - "/config/log"
+    - "/config"
     - "log"
     - "."
 
@@ -493,26 +494,6 @@ input_text:
   battery_status:  # set by power_data_to_file automation, avoiding introduction of further sensor
     name: Battery status
 
-# beware: from 2024.6, this will be ingored - see also https://community.home-assistant.io/t/notify-send-message-in-2024-6/737177/39
-notify: # https://www.home-assistant.io/integrations/file/
-  - name: power_data
-    platform: file
-    filename: power.csv
-    # timestamp: true
-    services:
-
-  - name: energy_data
-    platform: file
-    filename: energy.csv
-
-  - name: battery_data  # used for high-level battery status logging by situation automation
-    platform: file
-    filename: battery.csv
-
-  - name: profile_data
-    platform: file
-    filename: profile.csv
-
 shell_command: # https://www.home-assistant.io/integrations/shell_command/  "When using templates, shell_command runs in a more secure environment ..."
 # changes require HA restart, otherwise:  Error executing script. Service not found for call_service at pos N: Unable to find service shell_command.XYZ
 
@@ -628,8 +609,10 @@ automation:
               message: "{{ 'power consumption is not positive:' }} {{ cons }} {{ states('sensor.power_production') }} {{ states('sensor.pv1_power') }}"   
               logger: home
               level: warning
-      - service: notify.power_data
-        data_template: # time zone: %z
+      - action: notify.send_message
+        target:
+          entity_id: notify.power_data
+        data: # time zone: %z
           message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f,%s' %
                        (time, '    ?  ' if unav else cons,
                         ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '  ?  ',
@@ -692,8 +675,10 @@ automation:
           disc: "{{ 1000 * states('sensor.energy_discharge_hourly'  )|float }}"
           volt   : "{{ states('sensor.battery_voltage') }}"
           soc    : "{{ states('sensor.battery_soc')     }}"
-      - service: notify.energy_data
-        data_template:
+      - action: notify.send_message
+        target:
+          entity_id: notify.energy_data
+        data:
           message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d%s' %
                        (time, cons, prod, own, bal, imp, exp,
                         ',%s,%s,%s' % (
@@ -720,8 +705,10 @@ automation:
           prod: "{{ states('sensor.energy_production_minutely' ) }}"
       # unavailable consumption value intentionally leads to missing output line
       - condition: "{{ is_number(cons) }}"
-      - service: notify.profile_data
-        data_template:
+      - action: notify.send_message
+        target:
+          entity_id: notify.profile_data
+        data:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
 

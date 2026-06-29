@@ -657,8 +657,10 @@ automation:
             target:
               entity_id: input_boolean.charge_enabled
           - condition: "{{ situation != 'any' }}"
-          - service: notify.battery_data
-            data_template:
+          - action: notify.send_message
+            target:
+              entity_id: notify.battery_data  # used for high-level battery status logging by situation
+            data:
               message: "{{ '%s,0    ,%5.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
           - service: system_log.write
             data:
