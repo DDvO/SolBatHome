@@ -641,6 +641,7 @@ automation:
       - variables:
           target_charge: "{{ states('input_number.target_charge'   )|int(10) }}"
           target_dischg: "{{ states('input_number.target_discharge')|int(20) }}"
+      - condition: "{{ false }}" # disabled since light.power_import and light.power_export are currently not available
       - service: light.turn_on
         target:
           entity_id: light.power_import
