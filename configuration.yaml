@@ -611,10 +611,10 @@ automation:
           entity_id: notify.power_data
         data: # time zone: %z
           message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f,%s' %
-                       (time, '    ?  ' if unav else cons,
-                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '  ?  ',
-                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '  ?  ',
-                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '  ?  ',
+                       (time, '       ' if unav else cons,
+                        ('%5.1f' % prod if prod != 0 else '    0') if is_number(prod) else '     ',
+                        ('%5.1f' % chrg if chrg != 0 else '    0') if is_number(chrg) else '     ',
+                        ('%5.1f' % disc if disc != 0 else '    0') if is_number(disc) else '     ',
                         powA, powB, powC,
                         'per-channel powers unavailable' if unav else 'consumption non-positive' if cons <= 0 else '') }}"
       - variables:
@@ -661,8 +661,8 @@ automation:
         data:
           brightness_pct: "{{ min(100, max(0, (target_charge - balance) * 100 / 200)) }}"
 
-  # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, and export
-  - id: energy_data_to_file
+  # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, export, and battery status
+  - id: energy_data_to_file # also used for batttery data
     trigger:
       - platform: time_pattern
         minutes: 59
@@ -680,19 +680,28 @@ automation:
 
           chrg: "{{ 1000 * states('sensor.energy_charge_hourly'     )|float }}"
           disc: "{{ 1000 * states('sensor.energy_discharge_hourly'  )|float }}"
-          volt   : "{{ states('sensor.battery_voltage') }}"
-          soc    : "{{ states('sensor.battery_soc')     }}"
+          batt_status : "{{ states('input_text.battery_status') }}"
       - action: notify.send_message
         target:
           entity_id: notify.energy_data
         data:
-          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d%s' %
+          message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d%s%s' %
                        (time, cons, prod, own, bal, imp, exp,
-                        ',%s,%s,%s' % (
-                          '%4d'   % chrg if is_number(chrg) else '   ?',
-                          '%4d'   % disc if is_number(disc) else '   ?',
-                          states('input_text.battery_status'))
-                        if is_number(chrg) or is_number(disc) or is_number(volt) else '') }}"
+                        ',%s,%s' % (
+                          '%4d'   % chrg if is_number(chrg) else '    ',
+                          '%4d'   % disc if is_number(disc) else '    ')
+                          if is_number(chrg) or is_number(disc) or batt_status != '' else '',
+                        batt_status) }}"
+  # battery status logging, part of which was done before on situation change
+      - variables:
+          time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          batt_status : "{{ states('input_text.battery_status') }}"
+      - condition: "{{ batt_status != '' }}"
+      - action: notify.send_message
+        target:
+          entity_id: notify.battery_data
+        data:
+          message: "{{ '%s%s' % (time, batt_status) }}"
 
   # generate load and PV profile with one line per minute containing average power values (W)
   - id: profile_data_to_file
@@ -717,5 +726,5 @@ automation:
           entity_id: notify.profile_data
         data:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
-                                  '%7.2f' % (prod / 60) if is_number(prod) else '      ?' }}"
+                                  '%7.2f' % (prod / 60) if is_number(prod) else '       ' }}"
 
