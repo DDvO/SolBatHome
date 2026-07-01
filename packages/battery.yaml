@@ -1,3 +1,6 @@
+# battery voltage via Hoymiles DTU, SoC via Coulomb Counting method
+# unused
+
 input_number:
 
 # (ab-)using input_number for defining global constants

@@ -211,6 +211,17 @@ template:
             mdi:scale-unbalanced
           {% endif %}
 
+  - sensor:
+      - name: "Battery SoC"
+        unique_id: battery_soc_id
+        state: "{{ states('sensor.solarflow_800_plus_electric_level') }}"
+  - sensor:
+      - name: "Battery Voltage"
+#     - name: battery_voltage
+        unique_id: battery_voltage
+        state: "{{ states('sensor.solarflow_800_plus_bat_volt') }}"
+        unit_of_measurement: V
+
 # prefer using MQTT for Shelly Plus 1PM input because Shelly integration only reports changes of at least 5%
 # report 'unknown' or 'unavailable' (value from the Shelly integration) if both sources do not yield a number
 mqtt:
