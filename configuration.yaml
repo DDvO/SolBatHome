@@ -620,17 +620,26 @@ automation:
       - variables:
           volt        : "{{ states('sensor.battery_voltage'           )          }}"
           soc         : "{{ states('sensor.battery_soc'               )          }}"
-          volt_at_rest: "{{ states('input_number.last_voltage_at_rest')|float(0) }}"
-          soc_at_rest : "{{ states('input_number.last_soc_at_rest'    )|float(0) }}"
-          batt_status : "{{ '%s,%s,%s' %
-                            ('%4.1f' % volt if is_number(volt) else ' ?  ',
-                             '%4.1f' % soc  if is_number(soc ) else ' ?  ',
-                             'charging' if is_number(chrg) and chrg != 0 else
-                             'disc_ing' if is_number(disc) and disc != 0 else
-                             ' at rest' if volt|float(-1) == volt_at_rest and
-                                           soc |float(-1) ==  soc_at_rest else
-                            'previously at rest: %.1f V %.1f %%' % (volt_at_rest, soc_at_rest)) }}"
-      - service: input_text.set_value
+#         volt_at_rest: "{{ states('input_number.last_voltage_at_rest')|float(0) }}"
+#         soc_at_rest : "{{ states('input_number.last_soc_at_rest'    )|float(0) }}"
+#         state       : "{{ 'charging' if is_number(chrg) and chrg != 0 else
+#                           'disc_ing' if is_number(disc) and disc != 0 else
+#                           'sleeping' if volt|float(-1) == volt_at_rest and
+#                                         soc |float(-1) ==  soc_at_rest else
+#                           'previously at rest: %.1f V %.1f %%' % (volt_at_rest, soc_at_rest) }}"
+          temp        : "{{ states('sensor.solarflow_800_plus_hyper_tmp') }}"
+          snum        : "{{ states('sensor.solarflow_800_plus_pack_state') }}"
+          state       : "{{ 'charging' if snum == 1 else
+                            'disc_ing' if snum == 2 else
+                            'sleeping' }}" # "Charging"/"Discharging"/ 0: "Standby" or "Sleeping"
+          batt_status : "{{ (',%s,%s,%s,%s' %
+                            ('%4.1f' % volt if is_number(volt) else '    ',
+                             '%4.1f' % soc  if is_number(soc ) else '    ',
+                             state          if is_number(snum) else '        ',
+                             '%4.1f' % temp if is_number(temp) else '    '))
+                             if is_number(volt) or is_number(soc) or
+                                is_number(snum) or is_number(temp) else '' }}"
+      - service: input_text.set_value # makes the battery status re-usable like a sensor
         data:
           entity_id: input_text.battery_status
           value: "{{ batt_status }}"
