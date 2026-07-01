@@ -128,9 +128,11 @@ template:
         device_class: power
         unit_of_measurement: 'W'
         availability: "{{ is_number(states('sensor.power_consumption')) and
-                          is_number(states('sensor.power_production' )) }}"
+                          is_number(states('sensor.power_production' )) and
+                          is_number(states('sensor.power_charge'     )) }}"
         state: >
-          {{ min(states('sensor.power_consumption')|float, states('sensor.power_production')|float) }}
+          {{ min(states('sensor.power_consumption')|float,
+                 states('sensor.power_production')|float - states('sensor.power_charge')|float) }}
         # may go wrong if consumption and production sensor values are not consistent in time
 
 # https://community.home-assistant.io/t/use-last-value-instead-of-unknown/614331/4
