@@ -9,6 +9,9 @@ home automation software [Home Assistant](https://www.home-assistant.io/)
 for monitoring a small solar power system.
 It collects data via HTTP from digital power metering devices Shelly (Pro) 3EM and Shelly Plus 1PM.
 It can also collect data via MQTT and OpenDTU from a Hoymiles inverter.
+By default, it uses data provided via the
+[Zendure-HA](https://github.com/zendure/zendure-ha) integration
+from a Zendure device such as SolarFlow 800 Plus.
 
 The software supports optimized automatic control of an attached battery storage,
 where an AC-coupled charger is controlled using an ESP8266 module
@@ -43,6 +46,9 @@ Hausautomatisierungs-Software [Home Assistant](https://www.home-assistant.io/)
 zur Überwachung einer kleinen Solaranlage.
 Sie sammelt Daten per HTTP von digitalen Strommessgeräten Shelly (Pro) 3EM und Shelly Plus 1PM.
 Außerdem kann sie Daten über MQTT und OpenDTU von einem Hoymiles-Wechselrichter erfassen.
+Standardmäßig verwendet es Daten, die über die
+[Zendure-HA](https://github.com/zendure/zendure-ha)-Integration
+von Zendure-Geräten wie einem SolarFlow 800 Plus geliefert werden.
 
 Die Software unterstützt die optimierte Regelung eines angeschlossenen Batteriespeichers,
 wobei ein AC-gekoppeltes Ladegerät über ein ESP8266-Modul gesteuert wird

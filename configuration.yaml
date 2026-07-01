@@ -142,43 +142,46 @@ template:
       - name: power_production
         unique_id: power_production
         # friendly_name: "Power Production"  # - stable
-        state: '{{ trigger.to_state.state }}'
+        state: "{{ states('sensor.solarflow_800_plus_solar_input_power') }}"
         device_class: power
         unit_of_measurement: W
-    trigger:
-      - platform: state
-        entity_id: sensor.power_production_unstable
-        not_to:
-          - unknown
-          - unavailable
+#       state: '{{ trigger.to_state.state }}'
+#   trigger:
+#     - platform: state
+#       entity_id: sensor.power_production_unstable
+#       not_to:
+#         - unknown
+#         - unavailable
 
   - sensor:
       - name: power_charge
         unique_id: power_charge
         # friendly_name: "Charge power"  # - stable
-        state: '{{ trigger.to_state.state }}'
+        state: "{{ states('sensor.solarflow_800_plus_output_pack_power') }}"
         device_class: power
         unit_of_measurement: W
-    trigger:
-      - platform: state
-        entity_id: sensor.power_charge_unstable
-        not_to:
-          - unknown
-          - unavailable
+#       state: '{{ trigger.to_state.state }}'
+#   trigger:
+#     - platform: state
+#       entity_id: sensor.power_charge_unstable
+#       not_to:
+#         - unknown
+#         - unavailable
 
   - sensor:
       - name: power_discharge
         unique_id: power_discharge
         # friendly_name: "Discharge power"  # - stable
-        state: '{{ trigger.to_state.state }}'
+        state: "{{ states('sensor.solarflow_800_plus_pack_input_power') }}"
         device_class: power
         unit_of_measurement: W
-    trigger:
-      - platform: state
-        entity_id: sensor.power_discharge_unstable
-        not_to:
-          - unknown
-          - unavailable
+#       state: '{{ trigger.to_state.state }}'
+#   trigger:
+#     - platform: state
+#       entity_id: sensor.power_discharge_unstable
+#       not_to:
+#         - unknown
+#         - unavailable
 
   - sensor:
       - name: power_balance
@@ -638,7 +641,7 @@ automation:
         then:
           - service: system_log.write
             data:
-              message: "{{ 'power consumption is not positive:' }} {{ cons }} {{ states('sensor.power_production') }} {{ states('sensor.pv1_power') }}"   
+              message: "{{ 'power consumption is not positive:' }} {{ cons }} {{ states('sensor.power_production') }} {{ states('sensor.power_production') }}"
               logger: home
               level: warning
       - action: notify.send_message
