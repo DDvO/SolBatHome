@@ -629,7 +629,7 @@ automation:
           - condition: "{{ situation != 'any' }}"
           - action: notify.send_message
             target:
-              entity_id: notify.battery_data  # used for high-level battery status logging by situation
+              entity_id: notify.battery_data # augments hourly battery status logging by charging event
             data:
               message: "{{ '%s,0    ,%5.3f,charge-only,%s' % (time_soc, dis_diff, chg_reason) }}"
           - service: system_log.write
@@ -662,7 +662,7 @@ automation:
           - condition: "{{ situation != 'any' }}"
           - action: notify.send_message
             target:
-              entity_id: notify.battery_data
+              entity_id: notify.battery_data # augments hourly battery status logging by discharging event
             data:
               message: "{{ '%s,%5.3f,0    ,dischg-only,%s' % (time_soc, chg_diff, dis_reason) }}"
           - service: system_log.write

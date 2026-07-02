@@ -174,7 +174,7 @@ automation:
                           '%4d'   % disc if is_number(disc) else '    ')
                           if is_number(chrg) or is_number(disc) or batt_status != '' else '',
                         batt_status) }}"
-  # battery status logging, part of which was done before on situation change
+  # hourly battery status logging, can be augmented by (dis-)charging events in AC-coupled.yaml
       - variables:
           time: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
           batt_status : "{{ states('input_text.battery_status') }}"
