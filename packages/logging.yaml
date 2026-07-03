@@ -107,7 +107,7 @@ automation:
               level: warning
       - action: notify.send_message
         target:
-          entity_id: notify.power_data
+          entity_id: notify.power_data # associated with "power.csv"
         data: # time zone: %z
           message: "{{ '%s,%7.2f,%s,%s,%s,%7.2f,%7.2f,%7.2f,%s' %
                        (time, '       ' if unav else cons,
@@ -182,7 +182,7 @@ automation:
           batt_status : "{{ states('input_text.battery_status') }}"
       - action: notify.send_message
         target:
-          entity_id: notify.energy_data
+          entity_id: notify.energy_data # associated with "energy.csv"
         data:
           message: "{{ '%s,%4d,%4d,%4d,%4d,%4d,%4d%s%s' %
                        (time, cons, prod, own, bal, imp, exp,
@@ -198,7 +198,7 @@ automation:
       - condition: "{{ batt_status != '' }}"
       - action: notify.send_message
         target:
-          entity_id: notify.battery_data
+          entity_id: notify.battery_data # associated with "battery.csv"
         data:
           message: "{{ '%s%s' % (time, batt_status) }}"
 
@@ -222,7 +222,7 @@ automation:
       - condition: "{{ is_number(cons) }}"
       - action: notify.send_message
         target:
-          entity_id: notify.profile_data
+          entity_id: notify.profile_data # associated with "profile.csv"
         data:
           message: "{{ time }},{{ '%7.2f' % (cons / 60) }},{{
                                   '%7.2f' % (prod / 60) if is_number(prod) else '       ' }}"
