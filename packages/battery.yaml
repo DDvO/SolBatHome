@@ -1,5 +1,5 @@
 # battery voltage via Hoymiles DTU, SoC via Coulomb Counting method
-# unused
+# may be used with reporting.yaml and as basis for ac_coupled.yaml
 
 input_number:
 
@@ -129,7 +129,7 @@ template:
 
   - sensor:
     - name: "Battery SoC"  # using the Coulomb Counting method
-      unique_id: battery_soc_id
+      unique_id: battery_soc_id # for use by reporting.yaml, rename to "battery_soc"
       state_class: measurement
       # WTH, variables not supported here - see https://community.home-assistant.io/t/support-variables-in-template-sensors/249082
       availability: "{{ is_number(states('sensor.energy_charge_sum'   )) and
