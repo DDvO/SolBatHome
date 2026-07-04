@@ -118,7 +118,7 @@ automation:
                         'per-channel powers unavailable' if unav else 'consumption non-positive' if cons <= 0 else '') }}"
       - variables:
           volt        : "{{ states('sensor.battery_voltage'           )          }}"
-          soc         : "{{ states('sensor.battery_soc'               )          }}"
+          soc         : "{{ states('sensor.battery_soc_3'             )          }}"
 #         volt_at_rest: "{{ states('input_number.last_voltage_at_rest')|float(0) }}"
 #         soc_at_rest : "{{ states('input_number.last_soc_at_rest'    )|float(0) }}"
 #         state       : "{{ 'charging' if is_number(chrg) and chrg != 0 else

@@ -158,8 +158,9 @@ template:
 
   - sensor:
       - name: "Battery SoC"
-        unique_id: battery_soc_id
+        unique_id: battery_soc
         state: "{{ states('sensor.solarflow_800_plus_electric_level') }}"
+        unit_of_measurement: '%'
   - sensor:
       - name: "Battery Voltage"
 #     - name: battery_voltage
