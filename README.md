@@ -1,3 +1,5 @@
+![SolBatHome screenshot in Home Assistant Lovelace dashboard](./SolBatHome.png)
+
 # SolBatHome
 
 Home automation for small solar power systems, optionally with battery<br>
