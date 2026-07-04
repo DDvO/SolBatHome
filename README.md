@@ -1,13 +1,15 @@
 # SolBatHome
+
 Home automation for small solar power systems, optionally with battery<br>
-Heimautomatisierung for Balkonkraftwerke (SSG) optional mit Batteriespeicher
+Heimautomatisierung für Balkonkraftwerke (SSG) optional mit Batteriespeicher
 
 ## Overview
 
 This is a collection of configuration files for the
 home automation software [Home Assistant](https://www.home-assistant.io/)
-for monitoring a small solar power system.
-It collects data via HTTP from digital power metering devices Shelly (Pro) 3EM and Shelly Plus 1PM.
+for tracking and optionally controlling a small solar power system.
+It collects data via HTTP from a digital power metering device Shelly (Pro) 3EM
+and optionally from Shelly Plus 1PM, Shelly PM Mini, or the like by HTTP and/or MQTT.
 It can also collect data via MQTT and OpenDTU from a Hoymiles inverter.
 By default, it uses data provided via the
 [Zendure-HA](https://github.com/zendure/zendure-ha) integration
@@ -19,7 +21,7 @@ and a Hoymiles inverter controlled via OpenDTU is used for discharge.
 
 * Adds Home Assistant configuration files for solar power system monitoring and battery control
 * Provides automated charge/discharge control based on power balance, battery state, and solar forecast
-* Includes battery State of Charge (SoC) calculation using Coulomb Counting and Open Circuit Voltage methods
+* Can calculate the battery State of Charge (SoC) using the Coulomb Counting and Open Circuit Voltage methods
 * Implements power balance smoothing to filter out inductive power spikes from appliances
 
 The monitoring can be used to log per hour in a CSV file
@@ -43,8 +45,9 @@ to use for instance with the PV and energy storage system simulator
 
 Dies ist eine Sammlung von Konfigurationsdateien für die
 Hausautomatisierungs-Software [Home Assistant](https://www.home-assistant.io/)
-zur Überwachung einer kleinen Solaranlage.
-Sie sammelt Daten per HTTP von digitalen Strommessgeräten Shelly (Pro) 3EM und Shelly Plus 1PM.
+zur Überwachung (Monitoring) und optionalen Steuerung einer kleinen Solaranlage.
+Sie sammelt Daten per HTTP von digitalen Strommessgeräten Shelly (Pro) 3EM
+und optional von Shelly Plus 1PM, Shelly PM Mini o.ä. per HTTP und/oder MQTT.
 Außerdem kann sie Daten über MQTT und OpenDTU von einem Hoymiles-Wechselrichter erfassen.
 Standardmäßig verwendet es Daten, die über die
 [Zendure-HA](https://github.com/zendure/zendure-ha)-Integration
@@ -56,16 +59,16 @@ und ein über OpenDTU gesteuerter Hoymiles-Wechselrichter zur Entladung verwende
 
 * Fügt Home-Assistant-Konfigurationsdateien zur Überwachung der Solaranlage und Batteriesteuerung hinzu
 * Ermöglicht eine automatische Lade-/Entlade-Steuerung basierend auf Leistungsbilanz, Batteriestatus und Solarprognose
-* Beinhaltet die Berechnung des Batterieladezustands (SoC) mittels Coulomb Counting und Open-Circuit-Voltage-Verfahren
+* Kann den Ladezustand der Batterie (SoC) mithilfe der Coulomb-Zählung und der Leerlaufspannungsmethode berechnen.
 * Implementiert eine Glättung der Leistungsbilanz, um induktive Leistungsspitzen durch Verbraucher herauszufiltern
 
-Mit dieeer Lösung kann man die vom Haushalt verbrauchte und ggf. mit einer PV-Anlage
+Mit dieser Lösung kann man die vom Haushalt verbrauchte und ggf. mit einer PV-Anlage
 erzeugte Energie stundenweise in einer CSV-Datei protokollieren lassen,
 inklusive des dabei erzielten PV-Eigenverbrauchs, der Gesamt-Energiebilanz,
 sowie der importierten und exportierten Energie,
 wie sie auch von einen Zweiwegezähler geliefert wird.
 Bei Verwendung eines Batteriespeichers
-kann auch die gespeicherte und entladene Energie protokolliert werden
+kann auch die geladene und entladene Energie protokolliert werden
 sowie der Ladezustand jeweils zum Ende der vollen Stunde.
 
 Außerdem lassen sich die Leistungsdaten (Bilanz am Unterverteiler pro Phase,
@@ -76,6 +79,8 @@ z.B. zur Verwendung mit dem PV- und Speicher- Simulator
 [SolBatSim](https://github.com/DDvO/SolBatSim).
 
 <!--
-Local IspellDict: german8
-LocalWords: pl load csv yield configuration yaml
+Local IspellDict: american
+Local IspellDict2: german8
+LocalWords: SolBatHome Lovelace screenshot dashboard configuration SoC
+LocalWords: yaml pl br pl csv Local
 -->
