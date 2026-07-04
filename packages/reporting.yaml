@@ -107,6 +107,18 @@ template:
 #         - unavailable
 
   - sensor:
+      - name: "Battery Balance: Charge - Discharge"
+        unique_id: battery_balance
+        device_class: power
+        unit_of_measurement: 'W'
+        availability: >
+          {{ is_number(states('sensor.power_charge'   )) and
+             is_number(states('sensor.power_discharge')) }}
+        state: >
+          {{ states('sensor.power_charge'   )|float -
+             states('sensor.power_discharge')|float }}
+
+  - sensor:
       - name: power_balance
         unique_id: power_balance_id
         # friendly_name: "Power Balance" # " at distribution box"
