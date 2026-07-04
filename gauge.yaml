@@ -51,3 +51,32 @@ views:
         #  yellow: 5
         #  green: 300
         #  blue: 600
+     - type: gauge
+       entity: sensor.battery_balance_charge_discharge
+       needle: true
+       min: -200
+       max:  200
+       segments:
+         - from: -1000
+           color: '#00d0ff'
+         - from: -0
+           color: '#0000ff'
+     - type: gauge
+       entity: sensor.power_production
+       name: Power production
+       needle: true
+       severity:
+         yellow: 0
+         red: 1000
+     - type: gauge
+       entity: sensor.power_own_use
+       name: Power own use
+       needle: true
+       severity:
+         green: 0
+         red: 1000
+     - type: gauge
+       entity: sensor.power_consumption
+       segments:
+         - from: -1000
+           color: "#ff40ff" # purple
