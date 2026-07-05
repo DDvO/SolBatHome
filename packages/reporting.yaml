@@ -1,25 +1,3 @@
-homeassistant:
-
-# https://www.home-assistant.io/docs/configuration/customizing-devices/
-  customize:
-    sensor.power_balance:
-      # icon: mdi:lightbulb # would override the template sensor icon definition
-
-      # https://community.home-assistant.io/t/how-to-change-icons-colour-of-template-sensor-in-lovelace/107619
-      # is ignored, likely due to incomplete installation:
-      icon_color: >
-        {% set target_charge = states('input_number.target_charge'   )|int(10) %}
-        {% set target_dischg = states('input_number.target_discharge')|int(20) %}
-        {% set min_balanced = min(target_charge, target_dischg)          - 10  %}
-        {% set max_balanced = max(target_charge, target_dischg)          + 10  %}
-        {% if   min_balanced       <= this.state|float(0) and this.state|float(0) <= max_balanced       %}
-          green
-        {% elif min_balanced - 100 <= this.state|float(0) and this.state|float(0) <= max_balanced + 100 %}
-          yellow
-        {% else %}
-          red
-        {% endif %}
-
 template:
 # https://www.home-assistant.io/integrations/template/
 # https://smarthomebastler.at/template-sensor-neu-und-effektiv-anlegen/
@@ -166,6 +144,42 @@ template:
         unique_id: battery_voltage
         state: "{{ states('sensor.solarflow_800_plus_bat_volt') }}"
         unit_of_measurement: V
+
+input_number:
+  target_charge:
+    name: Target balance for charging battery (if present)
+    initial: 10
+    min: -50
+    max: 550
+    step: 10
+    icon: mdi:battery-arrow-up-outline
+  target_discharge:
+    name: Target balance for discharging battery (if present)
+    initial: 20
+    min: -250
+    max: 250
+    step: 10
+    icon: mdi:battery-arrow-down-outline
+
+homeassistant: # this attempt to use icon_color for sensor.power_balance is ignored
+# https://www.home-assistant.io/docs/configuration/customizing-devices/
+  customize:
+    sensor.power_balance:
+      # icon: mdi:lightbulb # would override the template sensor icon definition
+
+      # https://community.home-assistant.io/t/how-to-change-icons-colour-of-template-sensor-in-lovelace/107619
+      icon_color: >
+        {% set target_charge = states('input_number.target_charge'   )|int(10) %}
+        {% set target_dischg = states('input_number.target_discharge')|int(20) %}
+        {% set min_balanced = min(target_charge, target_dischg)          - 10  %}
+        {% set max_balanced = max(target_charge, target_dischg)          + 10  %}
+        {% if   min_balanced       <= this.state|float(0) and this.state|float(0) <= max_balanced       %}
+          green
+        {% elif min_balanced - 100 <= this.state|float(0) and this.state|float(0) <= max_balanced + 100 %}
+          yellow
+        {% else %}
+          red
+        {% endif %}
 
 # sensor: !include sensor.yaml
 sensor:

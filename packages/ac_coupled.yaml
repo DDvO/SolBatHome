@@ -56,20 +56,6 @@ input_boolean:
     initial: "on"
 
 input_number:
-  target_charge:
-    name: Target balance for charging
-    initial: 10
-    min: -50
-    max: 550
-    step: 10
-    icon: mdi:battery-arrow-up-outline
-  target_discharge:
-    name: Target balance for discharging
-    initial: 20
-    min: -250
-    max: 250
-    step: 10
-    icon: mdi:battery-arrow-down-outline
 
   energy_charge_last:
     name: Last charge energy
@@ -131,6 +117,29 @@ input_text:
   discharge_reason:
     name: Discharging reason
 
+automation:
+  - id: power_import_export
+    initial_state: true
+    trigger:
+      - platform: time_pattern
+        seconds: "/1"
+    action:
+      - variables:
+          balance      : "{{ states('sensor.power_balance')                  }}"
+          target_charge: "{{ states('input_number.target_charge'   )|int(10) }}"
+          target_dischg: "{{ states('input_number.target_discharge')|int(20) }}"
+      - service: light.turn_on
+        target:
+          entity_id: light.power_import
+        data:
+          brightness_pct: "{{ min(100, max(0, (balance - target_dischg) * 100 / 200)) }}"
+          # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
+          # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
+      - service: light.turn_on
+        target:
+          entity_id: light.power_export
+        data:
+          brightness_pct: "{{ min(100, max(0, (target_charge - balance) * 100 / 200)) }}"
 
 automation:
   # control battery charging with the goal that exactly any excess power is used for this

@@ -143,23 +143,6 @@ automation:
           entity_id: input_text.battery_status
           value: "{{ batt_status }}"
 
-      - variables:
-          target_charge: "{{ states('input_number.target_charge'   )|int(10) }}"
-          target_dischg: "{{ states('input_number.target_discharge')|int(20) }}"
-      - condition: "{{ false }}" # disabled since light.power_import and light.power_export are currently not available
-      - service: light.turn_on
-        target:
-          entity_id: light.power_import
-        data:
-          brightness_pct: "{{ min(100, max(0, (balance - target_dischg) * 100 / 200)) }}"
-          # rgb_color: [ 255, 0, 0 ]  # is ignored for icon color
-          # rgb_color: [ 255 if balance < 0 else 0, 0, 255 if balance >= 0 else 0]
-      - service: light.turn_on
-        target:
-          entity_id: light.power_export
-        data:
-          brightness_pct: "{{ min(100, max(0, (target_charge - balance) * 100 / 200)) }}"
-
   # generate statistics output per hour with energy consumption, production, charge, discharge, own use, balance, import, export, and battery status
   - id: energy_data_to_file # also used for batttery data
     trigger:
